@@ -81,6 +81,29 @@ class SqliteStoreTests(unittest.TestCase):
         self.assertEqual(events[0].event_type, "webhook.assignment.accepted")
         self.assertFalse(events[0].payload["duplicate"])
 
+    def test_handoff_contract_write_and_read(self) -> None:
+        session, _ = self.store.get_or_create_session("evt:task-5", "proj_1", "task_5")
+        run = self.store.create_agent_run(
+            task_session_id=session.task_session_id,
+            stage_role="coder",
+            agent_provider="openclaw",
+            agent_profile="openclaw-coder-v1",
+        )
+        self.store.save_handoff_contract(
+            agent_run_id=run.agent_run_id,
+            goal="fix login timeout",
+            completed=["patched retry logic"],
+            evidence=["tests:pass"],
+            risks=["needs load test"],
+            next_actions=["tester validates mobile"],
+            confidence="medium",
+        )
+        contract = self.store.get_handoff_contract(run.agent_run_id)
+
+        self.assertIsNotNone(contract)
+        self.assertEqual(contract.goal, "fix login timeout")
+        self.assertEqual(contract.completed, ["patched retry logic"])
+
 
 if __name__ == "__main__":
     unittest.main()

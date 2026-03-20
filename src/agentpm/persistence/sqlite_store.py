@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 from uuid import uuid4
 
-from agentpm.store import AgentRun, AuditEvent, TaskSession
+from agentpm.store import AgentRun, AuditEvent, HandoffContract, TaskSession
 
 
 def _utc_now_iso() -> str:
@@ -295,6 +295,74 @@ class SqliteStore:
                     event.occurred_at,
                 ),
             )
+
+    def save_handoff_contract(
+        self,
+        *,
+        agent_run_id: str,
+        goal: str,
+        completed: list[str],
+        evidence: list[str],
+        risks: list[str],
+        next_actions: list[str],
+        confidence: str,
+    ) -> HandoffContract:
+        contract_id = f"hc_{uuid4().hex[:12]}"
+        now = _utc_now_iso()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO handoff_contract (
+                    id, agent_run_id, goal, completed, evidence, risks, next_actions, confidence, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    contract_id,
+                    agent_run_id,
+                    goal,
+                    json.dumps(completed, ensure_ascii=True),
+                    json.dumps(evidence, ensure_ascii=True),
+                    json.dumps(risks, ensure_ascii=True),
+                    json.dumps(next_actions, ensure_ascii=True),
+                    confidence,
+                    now,
+                ),
+            )
+
+        return HandoffContract(
+            agent_run_id=agent_run_id,
+            goal=goal,
+            completed=completed,
+            evidence=evidence,
+            risks=risks,
+            next_actions=next_actions,
+            confidence=confidence,
+            created_at=now,
+        )
+
+    def get_handoff_contract(self, agent_run_id: str) -> Optional[HandoffContract]:
+        row = self._conn.execute(
+            """
+            SELECT agent_run_id, goal, completed, evidence, risks, next_actions, confidence, created_at
+            FROM handoff_contract
+            WHERE agent_run_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (agent_run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return HandoffContract(
+            agent_run_id=row["agent_run_id"],
+            goal=row["goal"] or "",
+            completed=json.loads(row["completed"] or "[]"),
+            evidence=json.loads(row["evidence"] or "[]"),
+            risks=json.loads(row["risks"] or "[]"),
+            next_actions=json.loads(row["next_actions"] or "[]"),
+            confidence=row["confidence"] or "unknown",
+            created_at=row["created_at"],
+        )
 
     def list_audit_events(self) -> list[AuditEvent]:
         rows = self._conn.execute(

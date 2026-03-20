@@ -39,11 +39,36 @@ class AuditEvent:
     occurred_at: str
 
 
+@dataclass
+class HandoffContract:
+    agent_run_id: str
+    goal: str
+    completed: list[str]
+    evidence: list[str]
+    risks: list[str]
+    next_actions: list[str]
+    confidence: str
+    created_at: str
+
+
 class Store(Protocol):
     def get_or_create_session(self, idempotency_key: str, project_id: str, task_id: str) -> Tuple[TaskSession, bool]:
         ...
 
     def add_audit_event(self, event: AuditEvent) -> None:
+        ...
+
+    def save_handoff_contract(
+        self,
+        *,
+        agent_run_id: str,
+        goal: str,
+        completed: list[str],
+        evidence: list[str],
+        risks: list[str],
+        next_actions: list[str],
+        confidence: str,
+    ) -> HandoffContract:
         ...
 
 
@@ -54,6 +79,7 @@ class InMemoryStore:
         self._sessions_by_key: Dict[str, TaskSession] = {}
         self._sessions_by_id: Dict[str, TaskSession] = {}
         self._agent_runs_by_id: Dict[str, AgentRun] = {}
+        self._handoff_by_run_id: Dict[str, HandoffContract] = {}
         self._audit_events: List[AuditEvent] = []
 
     @staticmethod
@@ -153,6 +179,33 @@ class InMemoryStore:
 
     def list_audit_events(self) -> List[AuditEvent]:
         return list(self._audit_events)
+
+    def save_handoff_contract(
+        self,
+        *,
+        agent_run_id: str,
+        goal: str,
+        completed: list[str],
+        evidence: list[str],
+        risks: list[str],
+        next_actions: list[str],
+        confidence: str,
+    ) -> HandoffContract:
+        contract = HandoffContract(
+            agent_run_id=agent_run_id,
+            goal=goal,
+            completed=completed,
+            evidence=evidence,
+            risks=risks,
+            next_actions=next_actions,
+            confidence=confidence,
+            created_at=self._now_iso(),
+        )
+        self._handoff_by_run_id[agent_run_id] = contract
+        return contract
+
+    def get_handoff_contract(self, agent_run_id: str) -> HandoffContract | None:
+        return self._handoff_by_run_id.get(agent_run_id)
 
 
 def _validate_agent_run_transition(from_status: str, to_status: str) -> None:
