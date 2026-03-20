@@ -4,8 +4,10 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Tuple
+from urllib.parse import urlparse
 
 from .errors import InvalidPayloadError, InvalidSignatureError
+from .reporting import ReportingService
 from .store import InMemoryStore
 from .webhook import handle_assignment_webhook
 
@@ -52,6 +54,24 @@ class AssignmentWebhookHandler(BaseHTTPRequestHandler):
         except Exception:
             status, payload = self._error(500, "INTERNAL_ERROR", "unexpected error")
 
+        self._write_json(status, payload)
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path
+        reporting = ReportingService(self.store)
+
+        if path.startswith("/metrics/projects/"):
+            project_id = path.removeprefix("/metrics/projects/")
+            self._write_json(200, reporting.get_project_metrics(project_id))
+            return
+
+        if path.startswith("/tasks/") and path.endswith("/timeline"):
+            task_id = path.split("/")[2]
+            self._write_json(200, reporting.get_task_timeline(task_id))
+            return
+
+        status, payload = self._error(404, "NOT_FOUND", "unknown endpoint")
         self._write_json(status, payload)
 
 

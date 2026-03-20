@@ -186,6 +186,10 @@ class SqliteStore:
         ).fetchone()
         return _row_to_task_session(row) if row else None
 
+    def list_task_sessions(self) -> list[TaskSession]:
+        rows = self._conn.execute("SELECT * FROM task_session ORDER BY created_at ASC").fetchall()
+        return [_row_to_task_session(row) for row in rows]
+
     def update_task_session_status(self, task_session_id: str, status: str) -> TaskSession:
         now = _utc_now_iso()
         with self._conn:
@@ -483,6 +487,27 @@ class SqliteStore:
     def list_audit_events(self) -> list[AuditEvent]:
         rows = self._conn.execute(
             "SELECT event_type, task_id, task_session_id, event_payload, occurred_at FROM audit_event ORDER BY occurred_at ASC"
+        ).fetchall()
+        return [
+            AuditEvent(
+                event_type=row["event_type"],
+                task_id=row["task_id"],
+                task_session_id=row["task_session_id"],
+                payload=json.loads(row["event_payload"]),
+                occurred_at=row["occurred_at"],
+            )
+            for row in rows
+        ]
+
+    def list_audit_events_for_task(self, task_id: str) -> list[AuditEvent]:
+        rows = self._conn.execute(
+            """
+            SELECT event_type, task_id, task_session_id, event_payload, occurred_at
+            FROM audit_event
+            WHERE task_id = ?
+            ORDER BY occurred_at ASC
+            """,
+            (task_id,),
         ).fetchall()
         return [
             AuditEvent(

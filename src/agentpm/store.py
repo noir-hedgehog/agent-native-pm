@@ -110,6 +110,12 @@ class Store(Protocol):
     def list_agent_runs_for_session(self, task_session_id: str) -> list[AgentRun]:
         ...
 
+    def list_task_sessions(self) -> list[TaskSession]:
+        ...
+
+    def list_audit_events_for_task(self, task_id: str) -> list[AuditEvent]:
+        ...
+
 
 class InMemoryStore:
     """MVP in-memory persistence for dedupe, sessions, and audit events."""
@@ -200,6 +206,9 @@ class InMemoryStore:
         runs = [run for run in self._agent_runs_by_id.values() if run.task_session_id == task_session_id]
         return sorted(runs, key=lambda run: run.created_at)
 
+    def list_task_sessions(self) -> list[TaskSession]:
+        return list(self._sessions_by_id.values())
+
     def transition_agent_run(self, agent_run_id: str, to_status: str) -> AgentRun:
         run = self._agent_runs_by_id[agent_run_id]
         _validate_agent_run_transition(run.status, to_status)
@@ -223,6 +232,9 @@ class InMemoryStore:
 
     def list_audit_events(self) -> List[AuditEvent]:
         return list(self._audit_events)
+
+    def list_audit_events_for_task(self, task_id: str) -> list[AuditEvent]:
+        return [event for event in self._audit_events if event.task_id == task_id]
 
     def save_handoff_contract(
         self,
