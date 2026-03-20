@@ -6,7 +6,7 @@ from typing import Any, Dict, Mapping
 
 from .errors import InvalidPayloadError
 from .signature import SIGNATURE_HEADER, verify_signature
-from .store import AuditEvent, InMemoryStore
+from .store import AuditEvent, Store
 
 
 def _utc_now_iso() -> str:
@@ -51,7 +51,7 @@ def handle_assignment_webhook(
     raw_body: bytes,
     headers: Mapping[str, str],
     secret: str,
-    store: InMemoryStore,
+    store: Store,
 ) -> tuple[int, Dict[str, Any]]:
     normalized_headers = {k.lower(): v for k, v in headers.items()}
     provided_sig = normalized_headers.get(SIGNATURE_HEADER, "")

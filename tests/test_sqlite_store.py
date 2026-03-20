@@ -1,0 +1,86 @@
+import tempfile
+import unittest
+
+from agentpm.persistence.sqlite_store import SqliteStore
+from agentpm.store import AuditEvent
+
+
+class SqliteStoreTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = f"{self.temp_dir.name}/agentpm.db"
+        self.store = SqliteStore(self.db_path)
+        self.store.run_migrations()
+
+    def tearDown(self) -> None:
+        self.store.close()
+        self.temp_dir.cleanup()
+
+    def test_migrations_create_expected_tables(self) -> None:
+        rows = self.store._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+        table_names = {row["name"] for row in rows}
+
+        self.assertTrue({
+            "project_policy",
+            "task_session",
+            "idempotency_key",
+            "agent_run",
+            "handoff_contract",
+            "transition_approval",
+            "audit_event",
+        }.issubset(table_names))
+
+    def test_get_or_create_session_is_idempotent(self) -> None:
+        first, first_dup = self.store.get_or_create_session("evt:task", "proj_1", "task_1")
+        second, second_dup = self.store.get_or_create_session("evt:task", "proj_1", "task_1")
+
+        self.assertFalse(first_dup)
+        self.assertTrue(second_dup)
+        self.assertEqual(first.task_session_id, second.task_session_id)
+
+    def test_task_session_status_update(self) -> None:
+        session, _ = self.store.get_or_create_session("evt:task-2", "proj_1", "task_2")
+        updated = self.store.update_task_session_status(session.task_session_id, "awaiting_review")
+
+        self.assertEqual(updated.status, "awaiting_review")
+
+    def test_agent_run_lifecycle_and_transition_guards(self) -> None:
+        session, _ = self.store.get_or_create_session("evt:task-3", "proj_1", "task_3")
+        run = self.store.create_agent_run(
+            task_session_id=session.task_session_id,
+            stage_role="coder",
+            agent_provider="openclaw",
+            agent_profile="openclaw-coder-v1",
+        )
+
+        running = self.store.transition_agent_run(run.agent_run_id, "running")
+        succeeded = self.store.transition_agent_run(run.agent_run_id, "succeeded")
+
+        self.assertEqual(running.status, "running")
+        self.assertEqual(succeeded.status, "succeeded")
+
+        with self.assertRaises(ValueError):
+            self.store.transition_agent_run(run.agent_run_id, "running")
+
+    def test_audit_event_write_and_read(self) -> None:
+        session, _ = self.store.get_or_create_session("evt:task-4", "proj_1", "task_4")
+        self.store.add_audit_event(
+            AuditEvent(
+                event_type="webhook.assignment.accepted",
+                task_id="task_4",
+                task_session_id=session.task_session_id,
+                payload={"duplicate": False},
+                occurred_at="2026-03-20T00:00:00+00:00",
+            )
+        )
+
+        events = self.store.list_audit_events()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_type, "webhook.assignment.accepted")
+        self.assertFalse(events[0].payload["duplicate"])
+
+
+if __name__ == "__main__":
+    unittest.main()
