@@ -107,6 +107,9 @@ class Store(Protocol):
     def list_pending_transition_approvals(self) -> list[TransitionApproval]:
         ...
 
+    def list_agent_runs_for_session(self, task_session_id: str) -> list[AgentRun]:
+        ...
+
 
 class InMemoryStore:
     """MVP in-memory persistence for dedupe, sessions, and audit events."""
@@ -192,6 +195,10 @@ class InMemoryStore:
 
     def get_agent_run(self, agent_run_id: str) -> AgentRun | None:
         return self._agent_runs_by_id.get(agent_run_id)
+
+    def list_agent_runs_for_session(self, task_session_id: str) -> list[AgentRun]:
+        runs = [run for run in self._agent_runs_by_id.values() if run.task_session_id == task_session_id]
+        return sorted(runs, key=lambda run: run.created_at)
 
     def transition_agent_run(self, agent_run_id: str, to_status: str) -> AgentRun:
         run = self._agent_runs_by_id[agent_run_id]

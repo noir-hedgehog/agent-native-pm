@@ -250,6 +250,17 @@ class SqliteStore:
         ).fetchone()
         return _row_to_agent_run(row) if row else None
 
+    def list_agent_runs_for_session(self, task_session_id: str) -> list[AgentRun]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM agent_run
+            WHERE task_session_id = ?
+            ORDER BY created_at ASC
+            """,
+            (task_session_id,),
+        ).fetchall()
+        return [_row_to_agent_run(row) for row in rows]
+
     def transition_agent_run(self, agent_run_id: str, to_status: str) -> AgentRun:
         row = self._conn.execute(
             "SELECT * FROM agent_run WHERE agent_run_id = ?",
