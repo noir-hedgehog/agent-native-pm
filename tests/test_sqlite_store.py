@@ -104,6 +104,33 @@ class SqliteStoreTests(unittest.TestCase):
         self.assertEqual(contract.goal, "fix login timeout")
         self.assertEqual(contract.completed, ["patched retry logic"])
 
+    def test_transition_approval_crud(self) -> None:
+        session, _ = self.store.get_or_create_session("evt:task-6", "proj_1", "task_6")
+        run = self.store.create_agent_run(
+            task_session_id=session.task_session_id,
+            stage_role="tester",
+            agent_provider="openclaw",
+            agent_profile="openclaw-tester-v1",
+        )
+        approval = self.store.create_transition_approval(
+            task_session_id=session.task_session_id,
+            from_run_id=run.agent_run_id,
+            to_stage_role="reviewer",
+        )
+        pending = self.store.list_pending_transition_approvals()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0].approval_id, approval.approval_id)
+
+        approved = self.store.update_transition_approval(
+            approval_id=approval.approval_id,
+            status="approved",
+            reviewer_id="user_1",
+            decision_note="looks good",
+            resolved_at="2026-03-20T01:00:00+00:00",
+        )
+        self.assertEqual(approved.status, "approved")
+        self.assertEqual(self.store.list_pending_transition_approvals(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

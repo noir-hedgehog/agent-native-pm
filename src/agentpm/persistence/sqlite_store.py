@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 from uuid import uuid4
 
-from agentpm.store import AgentRun, AuditEvent, HandoffContract, TaskSession
+from agentpm.store import AgentRun, AuditEvent, HandoffContract, TaskSession, TransitionApproval
 
 
 def _utc_now_iso() -> str:
@@ -363,6 +363,111 @@ class SqliteStore:
             confidence=row["confidence"] or "unknown",
             created_at=row["created_at"],
         )
+
+    def create_transition_approval(
+        self,
+        *,
+        task_session_id: str,
+        from_run_id: str,
+        to_stage_role: str,
+    ) -> TransitionApproval:
+        approval_id = f"ap_{uuid4().hex[:12]}"
+        created_at = _utc_now_iso()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO transition_approval (
+                    id, task_session_id, from_run_id, to_stage_role, status,
+                    reviewer_id, decision_note, created_at, resolved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    approval_id,
+                    task_session_id,
+                    from_run_id,
+                    to_stage_role,
+                    "pending",
+                    None,
+                    None,
+                    created_at,
+                    None,
+                ),
+            )
+        return TransitionApproval(
+            approval_id=approval_id,
+            task_session_id=task_session_id,
+            from_run_id=from_run_id,
+            to_stage_role=to_stage_role,
+            status="pending",
+            reviewer_id=None,
+            decision_note=None,
+            created_at=created_at,
+            resolved_at=None,
+        )
+
+    def update_transition_approval(
+        self,
+        *,
+        approval_id: str,
+        status: str,
+        reviewer_id: str | None,
+        decision_note: str | None,
+        resolved_at: str | None,
+    ) -> TransitionApproval:
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE transition_approval
+                SET status = ?, reviewer_id = ?, decision_note = ?, resolved_at = ?
+                WHERE id = ?
+                """,
+                (status, reviewer_id, decision_note, resolved_at, approval_id),
+            )
+        row = self._conn.execute(
+            """
+            SELECT id, task_session_id, from_run_id, to_stage_role, status, reviewer_id, decision_note, created_at, resolved_at
+            FROM transition_approval
+            WHERE id = ?
+            """,
+            (approval_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown approval_id: {approval_id}")
+        return TransitionApproval(
+            approval_id=row["id"],
+            task_session_id=row["task_session_id"],
+            from_run_id=row["from_run_id"],
+            to_stage_role=row["to_stage_role"],
+            status=row["status"],
+            reviewer_id=row["reviewer_id"],
+            decision_note=row["decision_note"],
+            created_at=row["created_at"],
+            resolved_at=row["resolved_at"],
+        )
+
+    def list_pending_transition_approvals(self) -> list[TransitionApproval]:
+        rows = self._conn.execute(
+            """
+            SELECT id, task_session_id, from_run_id, to_stage_role, status, reviewer_id, decision_note, created_at, resolved_at
+            FROM transition_approval
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+        return [
+            TransitionApproval(
+                approval_id=row["id"],
+                task_session_id=row["task_session_id"],
+                from_run_id=row["from_run_id"],
+                to_stage_role=row["to_stage_role"],
+                status=row["status"],
+                reviewer_id=row["reviewer_id"],
+                decision_note=row["decision_note"],
+                created_at=row["created_at"],
+                resolved_at=row["resolved_at"],
+            )
+            for row in rows
+        ]
 
     def list_audit_events(self) -> list[AuditEvent]:
         rows = self._conn.execute(

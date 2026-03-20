@@ -51,6 +51,19 @@ class HandoffContract:
     created_at: str
 
 
+@dataclass
+class TransitionApproval:
+    approval_id: str
+    task_session_id: str
+    from_run_id: str
+    to_stage_role: str
+    status: str
+    reviewer_id: str | None
+    decision_note: str | None
+    created_at: str
+    resolved_at: str | None
+
+
 class Store(Protocol):
     def get_or_create_session(self, idempotency_key: str, project_id: str, task_id: str) -> Tuple[TaskSession, bool]:
         ...
@@ -71,6 +84,29 @@ class Store(Protocol):
     ) -> HandoffContract:
         ...
 
+    def create_transition_approval(
+        self,
+        *,
+        task_session_id: str,
+        from_run_id: str,
+        to_stage_role: str,
+    ) -> TransitionApproval:
+        ...
+
+    def update_transition_approval(
+        self,
+        *,
+        approval_id: str,
+        status: str,
+        reviewer_id: str | None,
+        decision_note: str | None,
+        resolved_at: str | None,
+    ) -> TransitionApproval:
+        ...
+
+    def list_pending_transition_approvals(self) -> list[TransitionApproval]:
+        ...
+
 
 class InMemoryStore:
     """MVP in-memory persistence for dedupe, sessions, and audit events."""
@@ -80,6 +116,7 @@ class InMemoryStore:
         self._sessions_by_id: Dict[str, TaskSession] = {}
         self._agent_runs_by_id: Dict[str, AgentRun] = {}
         self._handoff_by_run_id: Dict[str, HandoffContract] = {}
+        self._approvals_by_id: Dict[str, TransitionApproval] = {}
         self._audit_events: List[AuditEvent] = []
 
     @staticmethod
@@ -206,6 +243,54 @@ class InMemoryStore:
 
     def get_handoff_contract(self, agent_run_id: str) -> HandoffContract | None:
         return self._handoff_by_run_id.get(agent_run_id)
+
+    def create_transition_approval(
+        self,
+        *,
+        task_session_id: str,
+        from_run_id: str,
+        to_stage_role: str,
+    ) -> TransitionApproval:
+        approval = TransitionApproval(
+            approval_id=f"ap_{uuid4().hex[:12]}",
+            task_session_id=task_session_id,
+            from_run_id=from_run_id,
+            to_stage_role=to_stage_role,
+            status="pending",
+            reviewer_id=None,
+            decision_note=None,
+            created_at=self._now_iso(),
+            resolved_at=None,
+        )
+        self._approvals_by_id[approval.approval_id] = approval
+        return approval
+
+    def update_transition_approval(
+        self,
+        *,
+        approval_id: str,
+        status: str,
+        reviewer_id: str | None,
+        decision_note: str | None,
+        resolved_at: str | None,
+    ) -> TransitionApproval:
+        approval = self._approvals_by_id[approval_id]
+        updated = TransitionApproval(
+            approval_id=approval.approval_id,
+            task_session_id=approval.task_session_id,
+            from_run_id=approval.from_run_id,
+            to_stage_role=approval.to_stage_role,
+            status=status,
+            reviewer_id=reviewer_id,
+            decision_note=decision_note,
+            created_at=approval.created_at,
+            resolved_at=resolved_at,
+        )
+        self._approvals_by_id[approval_id] = updated
+        return updated
+
+    def list_pending_transition_approvals(self) -> list[TransitionApproval]:
+        return [approval for approval in self._approvals_by_id.values() if approval.status == "pending"]
 
 
 def _validate_agent_run_transition(from_status: str, to_status: str) -> None:
