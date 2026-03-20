@@ -8,7 +8,7 @@ import urllib.request
 
 def sign(body: bytes, secret: str) -> str:
     digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return f"sha256={digest}"
+    return digest
 
 
 def main() -> None:
@@ -22,19 +22,19 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = {
-        "event_id": args.event_id,
-        "event_type": "task.assigned",
-        "occurred_at": "2026-03-20T00:00:00Z",
-        "project": {"id": args.project_id, "name": "Local Project"},
-        "task": {
+        "event": "issue",
+        "action": "update",
+        "webhook_id": "wh_local_001",
+        "workspace_id": "ws_local",
+        "data": {
             "id": args.task_id,
-            "key": "AG-LOCAL",
+            "project_id": args.project_id,
+            "identifier": "AG-LOCAL",
             "title": "Local webhook smoke",
-            "description": "Validate assignment webhook end-to-end",
-            "status": "todo",
+            "description_text": "Validate assignment webhook end-to-end",
+            "assignees": [{"id": args.assignee}],
+            "updated_by": "user_local",
         },
-        "assignee": {"id": args.assignee, "type": "agent_profile"},
-        "actor": {"id": "user_local", "name": "Local Operator"},
     }
 
     raw = json.dumps(payload).encode("utf-8")
@@ -44,6 +44,8 @@ def main() -> None:
         headers={
             "Content-Type": "application/json",
             "X-Plane-Signature": sign(raw, args.secret),
+            "X-Plane-Delivery": args.event_id,
+            "X-Plane-Event": "issue",
         },
         method="POST",
     )

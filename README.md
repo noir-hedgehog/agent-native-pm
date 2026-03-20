@@ -14,7 +14,7 @@ Server endpoint:
 
 Required header:
 
-- `X-Plane-Signature: sha256=<hmac_hex>`
+- `X-Plane-Signature: <hmac_hex>` (also accepts `sha256=<hmac_hex>`)
 
 ## Run tests
 

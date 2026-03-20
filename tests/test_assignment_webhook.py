@@ -60,12 +60,80 @@ class AssignmentWebhookTests(unittest.TestCase):
         with self.assertRaises(InvalidSignatureError):
             handle_assignment_webhook(raw_body=raw, headers=headers, secret=self.secret, store=self.store)
 
+    def test_accepts_plain_hex_signature_format(self) -> None:
+        raw = json.dumps(self.payload).encode("utf-8")
+        prefixed = sign(raw, self.secret)
+        plain = prefixed.split("=", 1)[1]
+        headers = {"X-Plane-Signature": plain}
+
+        status, response = handle_assignment_webhook(
+            raw_body=raw,
+            headers=headers,
+            secret=self.secret,
+            store=self.store,
+        )
+        self.assertEqual(status, 202)
+        self.assertTrue(response["accepted"])
+
     def test_rejects_invalid_payload(self) -> None:
         raw = json.dumps({"event_id": "x"}).encode("utf-8")
         headers = {"X-Plane-Signature": sign(raw, self.secret)}
 
         with self.assertRaises(InvalidPayloadError):
             handle_assignment_webhook(raw_body=raw, headers=headers, secret=self.secret, store=self.store)
+
+    def test_accepts_plane_issue_webhook_shape(self) -> None:
+        payload = {
+            "event": "issue",
+            "action": "update",
+            "webhook_id": "wh_1",
+            "workspace_id": "ws_1",
+            "data": {
+                "id": "issue_1",
+                "project_id": "proj_1",
+                "identifier": "AG-1",
+                "assignees": [{"id": "agent_openclaw_coder"}],
+            },
+        }
+        raw = json.dumps(payload).encode("utf-8")
+        headers = {
+            "X-Plane-Signature": sign(raw, self.secret).split("=", 1)[1],
+            "X-Plane-Delivery": "delivery_123",
+            "X-Plane-Event": "issue",
+        }
+        status, response = handle_assignment_webhook(
+            raw_body=raw,
+            headers=headers,
+            secret=self.secret,
+            store=self.store,
+        )
+        self.assertEqual(status, 202)
+        self.assertTrue(response["accepted"])
+        self.assertEqual(response["idempotency_key"], "delivery_123:issue_1")
+
+    def test_ignores_issue_event_without_assignee(self) -> None:
+        payload = {
+            "event": "issue",
+            "action": "update",
+            "webhook_id": "wh_1",
+            "workspace_id": "ws_1",
+            "data": {
+                "id": "issue_2",
+                "project_id": "proj_1",
+                "identifier": "AG-2",
+            },
+        }
+        raw = json.dumps(payload).encode("utf-8")
+        headers = {"X-Plane-Signature": sign(raw, self.secret).split("=", 1)[1]}
+        status, response = handle_assignment_webhook(
+            raw_body=raw,
+            headers=headers,
+            secret=self.secret,
+            store=self.store,
+        )
+        self.assertEqual(status, 202)
+        self.assertFalse(response["accepted"])
+        self.assertTrue(response["ignored"])
 
 
 if __name__ == "__main__":

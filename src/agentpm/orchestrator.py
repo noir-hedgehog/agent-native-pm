@@ -54,6 +54,14 @@ class AssignmentOrchestrator:
         if status != 202:
             raise RuntimeError(f"unexpected webhook handler status: {status}")
 
+        if response.get("ignored"):
+            return {
+                "accepted": False,
+                "ignored": True,
+                "task_session_id": None,
+                "agent_run_id": None,
+            }
+
         if response["duplicate"]:
             return {
                 "accepted": True,
