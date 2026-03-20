@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PORT="${PORT:-8080}"
+PORT="${PORT:-18080}"
 SECRET="${PLANE_WEBHOOK_SECRET:-dev-secret}"
 
 PYTHONPATH=src PLANE_WEBHOOK_SECRET="$SECRET" PORT="$PORT" python3 -m agentpm.server > /tmp/agentpm-server.log 2>&1 &
@@ -12,12 +12,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for _ in {1..30}; do
-  if curl -s "http://127.0.0.1:$PORT/metrics/projects/proj_local" >/dev/null 2>&1; then
+ready=0
+for _ in {1..50}; do
+  if curl -sf "http://127.0.0.1:$PORT/metrics/projects/proj_local" >/dev/null 2>&1; then
+    ready=1
     break
   fi
   sleep 0.2
 done
+
+if [ "$ready" -ne 1 ]; then
+  echo "Server did not become ready on port $PORT. Check /tmp/agentpm-server.log" >&2
+  exit 1
+fi
 
 echo "[1/3] sending signed webhook"
 python3 scripts/send_signed_assignment.py \

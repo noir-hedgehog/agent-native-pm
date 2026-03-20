@@ -1,6 +1,7 @@
+import os
 import unittest
 
-from agentpm.adapters.openclaw import OpenClawAdapter
+from agentpm.adapters.openclaw import OpenClawAdapter, OpenClawAdapterConfig
 
 
 class FakeTransport:
@@ -92,6 +93,51 @@ class OpenClawAdapterTests(unittest.TestCase):
         self.assertEqual(len(events), 2)
         self.assertEqual(events[0]["type"], "run.output")
         self.assertEqual(events[1]["type"], "run.completed")
+
+    def test_supports_alternate_run_and_session_keys(self):
+        class AltTransport(FakeTransport):
+            def post(self, path, payload):
+                if path == "/v2/runs":
+                    return {
+                        "id": "run_alt_1",
+                        "sessionId": "sess_alt_1",
+                        "state": "running",
+                    }
+                return super().post(path, payload)
+
+        config = OpenClawAdapterConfig(
+            start_run_path="/v2/runs",
+            run_id_key="run_id_missing",
+            session_id_key="session_id_missing",
+            status_key="state",
+        )
+        adapter = OpenClawAdapter(AltTransport(), config=config)
+        result = adapter.start_run(
+            {
+                "task_session_id": "ts_1",
+                "agent_run_id": "ar_1",
+                "task_id": "task_1",
+                "stage_role": "coder",
+                "instruction": "Fix bug",
+                "context": {"task_title": "Bug"},
+                "policy": {"max_retry": 1},
+            }
+        )
+        self.assertEqual(result.provider_run_id, "run_alt_1")
+        self.assertEqual(result.provider_session_id, "sess_alt_1")
+        self.assertEqual(result.status, "running")
+
+    def test_config_can_be_built_from_env(self):
+        old = dict(os.environ)
+        try:
+            os.environ["OPENCLAW_START_RUN_PATH"] = "/api/runs/start"
+            os.environ["OPENCLAW_RUN_ID_KEY"] = "id"
+            cfg = OpenClawAdapterConfig.from_env()
+            self.assertEqual(cfg.start_run_path, "/api/runs/start")
+            self.assertEqual(cfg.run_id_key, "id")
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
 
 
 if __name__ == "__main__":

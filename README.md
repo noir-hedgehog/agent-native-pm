@@ -48,3 +48,14 @@ curl -s http://127.0.0.1:8080/metrics/projects/proj_local
 # 4) check task timeline
 curl -s http://127.0.0.1:8080/tasks/task_local_001/timeline
 ```
+
+## OpenClaw real API integration
+
+See:
+- `docs/openclaw-integration.md`
+
+Quick probe:
+
+```bash
+python3 scripts/openclaw_probe.py --base-url "$OPENCLAW_BASE_URL"
+```
