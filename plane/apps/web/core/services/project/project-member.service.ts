@@ -10,6 +10,17 @@ import type { IProjectBulkAddFormData, TProjectMembership } from "@plane/types";
 // services
 import { APIService } from "@/services/api.service";
 
+export type TProjectAgentMember = {
+  user_id: string;
+  agent_id: string | null;
+  display_name: string;
+  email: string;
+  avatar_url: string;
+  workspace_role: number;
+  project_member_id: string | null;
+  project_role: number | null;
+};
+
 export class ProjectMemberService extends APIService {
   constructor() {
     super(API_BASE_URL);
@@ -29,6 +40,26 @@ export class ProjectMemberService extends APIService {
     data: IProjectBulkAddFormData
   ): Promise<TProjectMembership[]> {
     return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/members/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async fetchProjectAgentMembers(workspaceSlug: string, projectId: string): Promise<TProjectAgentMember[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/projects/${projectId}/agent-members/`)
+      .then((response) => response?.data?.agents ?? [])
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async addAgentMemberToProject(
+    workspaceSlug: string,
+    projectId: string,
+    data: { user_id: string; role: number }
+  ): Promise<TProjectMembership[]> {
+    return this.post(`/api/workspaces/${workspaceSlug}/projects/${projectId}/agent-members/`, data)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

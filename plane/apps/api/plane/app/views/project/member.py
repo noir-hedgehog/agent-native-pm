@@ -18,7 +18,7 @@ from plane.app.serializers import (
 
 from plane.app.permissions import WorkspaceUserPermission
 
-from plane.db.models import Project, ProjectMember, ProjectUserProperty, WorkspaceMember
+from plane.db.models import Project, ProjectMember, ProjectUserProperty, User, WorkspaceMember
 from plane.bgtasks.project_add_user_email_task import project_add_user_email
 from plane.utils.host import base_host
 from plane.app.permissions.base import allow_permission, ROLE
@@ -324,6 +324,83 @@ class ProjectMemberUserEndpoint(BaseAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class ProjectAgentMemberEndpoint(BaseAPIView):
+    @allow_permission([ROLE.ADMIN])
+    def get(self, request, slug, project_id):
+        project = Project.objects.get(pk=project_id, workspace__slug=slug)
+        workspace_members = (
+            WorkspaceMember.objects.filter(workspace=project.workspace, member__is_bot=True, is_active=True)
+            .select_related("member")
+            .order_by("member__display_name", "member__email")
+        )
+        project_members = {
+            str(project_member.member_id): project_member
+            for project_member in ProjectMember.objects.filter(project=project, member__is_bot=True, is_active=True)
+        }
+
+        agents = []
+        for workspace_member in workspace_members:
+            user = workspace_member.member
+            project_member = project_members.get(str(user.id))
+            agents.append(
+                {
+                    "user_id": str(user.id),
+                    "agent_id": _agent_id_for_user(user),
+                    "display_name": user.display_name,
+                    "email": user.email,
+                    "avatar_url": user.avatar_url,
+                    "workspace_role": workspace_member.role,
+                    "project_member_id": str(project_member.id) if project_member else None,
+                    "project_role": project_member.role if project_member else None,
+                }
+            )
+
+        return Response({"agents": agents}, status=status.HTTP_200_OK)
+
+    @allow_permission([ROLE.ADMIN])
+    def post(self, request, slug, project_id):
+        project = Project.objects.get(pk=project_id, workspace__slug=slug)
+        role = int(request.data.get("role", ROLE.MEMBER.value))
+        if role not in [ROLE.ADMIN.value, ROLE.MEMBER.value, ROLE.GUEST.value]:
+            return Response({"error": "Invalid project role"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = _resolve_agent_user(request.data, project.workspace_id)
+        except User.DoesNotExist:
+            return Response(
+                {"error": "Agent must be an active workspace bot user before it can join a project"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        workspace_member = WorkspaceMember.objects.filter(
+            workspace=project.workspace,
+            member=user,
+            member__is_bot=True,
+            is_active=True,
+        ).first()
+        if workspace_member is None:
+            return Response(
+                {"error": "Agent must be an active workspace bot user before it can join a project"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_member, _ = ProjectMember.objects.update_or_create(
+            project=project,
+            workspace=project.workspace,
+            member=user,
+            defaults={"role": role, "is_active": True},
+        )
+        ProjectUserProperty.objects.get_or_create(
+            user=user,
+            project=project,
+            workspace=project.workspace,
+            defaults={"sort_order": 65535},
+        )
+
+        serializer = ProjectMemberRoleSerializer([project_member], many=True)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
 class UserProjectRolesEndpoint(BaseAPIView):
     permission_classes = [WorkspaceUserPermission]
     use_read_replica = True
@@ -368,3 +445,36 @@ class ProjectMemberPreferenceEndpoint(BaseAPIView):
         serializer = ProjectMemberPreferenceSerializer(project_member)
 
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+def _resolve_agent_user(data, workspace_id):
+    user_id = data.get("user_id")
+    agent_id = data.get("member_agent_id") or data.get("agent_id")
+
+    queryset = User.objects.filter(
+        is_bot=True,
+        member_workspace__workspace_id=workspace_id,
+        member_workspace__is_active=True,
+    )
+    if user_id:
+        return queryset.get(pk=user_id)
+
+    normalized_agent_id = _normalize_agent_id(str(agent_id or ""))
+    if not normalized_agent_id:
+        raise User.DoesNotExist
+
+    return queryset.get(username=f"agent-{normalized_agent_id}")
+
+
+def _agent_id_for_user(user):
+    username = (user.username or "").lower()
+    email = (user.email or "").lower()
+    if username.startswith("agent-"):
+        return _normalize_agent_id(username.removeprefix("agent-"))
+    if email.startswith("agent-"):
+        return _normalize_agent_id(email.removeprefix("agent-").split("@", 1)[0])
+    return None
+
+
+def _normalize_agent_id(value):
+    return "".join(ch for ch in value.strip().lower() if ch.isalnum() or ch in {"-", "_"})

@@ -10,24 +10,25 @@ import { Button } from "@plane/propel/button";
 // assets
 import maintenanceModeDarkModeImage from "@/app/assets/instance/maintenance-mode-dark.svg?url";
 import maintenanceModeLightModeImage from "@/app/assets/instance/maintenance-mode-light.svg?url";
+import { AGENTPM_DOCS_URL, AGENTPM_NEW_ISSUE_URL, AGENTPM_ROADMAP_URL } from "@/constants/agentpm";
 // layouts
 import DefaultLayout from "@/layouts/default-layout";
 
 const linkMap = [
   {
     key: "mail_to",
-    label: "Contact Support",
-    value: "mailto:support@plane.so",
+    label: "Report issue",
+    value: AGENTPM_NEW_ISSUE_URL,
   },
   {
     key: "status",
-    label: "Status Page",
-    value: "https://status.plane.so/",
+    label: "Docs",
+    value: AGENTPM_DOCS_URL,
   },
   {
     key: "twitter_handle",
-    label: "@planepowers",
-    value: "https://x.com/planepowers",
+    label: "Roadmap",
+    value: AGENTPM_ROADMAP_URL,
   },
 ];
 

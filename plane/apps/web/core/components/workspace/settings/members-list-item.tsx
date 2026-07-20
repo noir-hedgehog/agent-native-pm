@@ -15,6 +15,7 @@ import { Table } from "@plane/ui";
 import { MembersLayoutLoader } from "@/components/ui/loader/layouts/members-layout-loader";
 import { ConfirmWorkspaceMemberRemove } from "@/components/workspace/confirm-workspace-member-remove";
 import type { RowData } from "@/components/workspace/settings/member-columns";
+import { WorkspaceMemberTokenModal } from "@/components/workspace/settings/member-token-modal";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useWorkspace } from "@/hooks/store/use-workspace";
@@ -29,7 +30,8 @@ type Props = {
 
 export const WorkspaceMembersListItem = observer(function WorkspaceMembersListItem(props: Props) {
   const { memberDetails } = props;
-  const { columns, workspaceSlug, removeMemberModal, setRemoveMemberModal } = useMemberColumns();
+  const { columns, workspaceSlug, removeMemberModal, setRemoveMemberModal, tokenMemberModal, setTokenMemberModal } =
+    useMemberColumns();
   // router
   const router = useAppRouter();
   // store hooks
@@ -101,6 +103,14 @@ export const WorkspaceMembersListItem = observer(function WorkspaceMembersListIt
             display_name: removeMemberModal.member.display_name || "",
           }}
           onSubmit={() => handleRemove(removeMemberModal.member.id)}
+        />
+      )}
+      {workspaceSlug && tokenMemberModal && (
+        <WorkspaceMemberTokenModal
+          isOpen={tokenMemberModal.member.id.length > 0}
+          onClose={() => setTokenMemberModal(null)}
+          member={tokenMemberModal}
+          workspaceSlug={workspaceSlug.toString()}
         />
       )}
       <Table<RowData>

@@ -8,6 +8,7 @@ from plane.app.views import (
     ProjectViewSet,
     DeployBoardViewSet,
     ProjectInvitationsViewset,
+    ProjectAgentMemberEndpoint,
     ProjectMemberViewSet,
     ProjectMemberUserEndpoint,
     ProjectJoinEndpoint,
@@ -18,6 +19,10 @@ from plane.app.views import (
     UserProjectRolesEndpoint,
     ProjectArchiveUnarchiveEndpoint,
     ProjectMemberPreferenceEndpoint,
+    AgentPolicyApprovalEndpoint,
+    AgentPolicyEndpoint,
+    AgentPolicyHistoryEndpoint,
+    AgentPolicyRuntimeEndpoint,
 )
 
 
@@ -78,6 +83,31 @@ urlpatterns = [
         "workspaces/<str:slug>/projects/<uuid:project_id>/members/",
         ProjectMemberViewSet.as_view({"get": "list", "post": "create"}),
         name="project-member",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/agent-members/",
+        ProjectAgentMemberEndpoint.as_view(),
+        name="project-agent-member",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/agent-policy/",
+        AgentPolicyEndpoint.as_view(),
+        name="project-agent-policy",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/agent-policy/history/",
+        AgentPolicyHistoryEndpoint.as_view(),
+        name="project-agent-policy-history",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/agent-policy/runtime/",
+        AgentPolicyRuntimeEndpoint.as_view(),
+        name="project-agent-policy-runtime",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/agent-policy/approvals/<str:approval_id>/",
+        AgentPolicyApprovalEndpoint.as_view(),
+        name="project-agent-policy-approval",
     ),
     path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/members/<uuid:pk>/",

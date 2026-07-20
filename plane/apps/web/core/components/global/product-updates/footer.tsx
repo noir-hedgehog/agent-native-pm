@@ -6,11 +6,12 @@
 
 import { USER_TRACKER_ELEMENTS } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
+import { GithubIcon } from "lucide-react";
 // ui
 import { getButtonStyling } from "@plane/propel/button";
-import { PlaneLogo } from "@plane/propel/icons";
 // helpers
 import { cn } from "@plane/utils";
+import { AGENTPM_DOCS_URL, AGENTPM_GITHUB_URL, AGENTPM_NEW_ISSUE_URL, AGENTPM_ROADMAP_URL } from "@/constants/agentpm";
 
 export function ProductUpdatesFooter() {
   const { t } = useTranslation();
@@ -18,7 +19,7 @@ export function ProductUpdatesFooter() {
     <div className="m-6 mb-4 flex flex-shrink-0 items-center justify-between gap-4">
       <div className="flex items-center gap-2">
         <a
-          href="https://go.plane.so/p-docs"
+          href={AGENTPM_DOCS_URL}
           target="_blank"
           className="text-13 text-secondary underline-offset-1 outline-none hover:text-primary hover:underline"
           rel="noreferrer"
@@ -30,38 +31,38 @@ export function ProductUpdatesFooter() {
         </svg>
         <a
           data-ph-element={USER_TRACKER_ELEMENTS.CHANGELOG_REDIRECTED}
-          href="https://go.plane.so/p-changelog"
+          href={AGENTPM_ROADMAP_URL}
           target="_blank"
           className="text-13 text-secondary underline-offset-1 outline-none hover:text-primary hover:underline"
           rel="noreferrer"
         >
-          {t("full_changelog")}
+          Roadmap
         </a>
         <svg viewBox="0 0 2 2" className="h-0.5 w-0.5 fill-current">
           <circle cx={1} cy={1} r={1} />
         </svg>
         <a
-          href="mailto:support@plane.so"
+          href={AGENTPM_NEW_ISSUE_URL}
           target="_blank"
           className="text-13 text-secondary underline-offset-1 outline-none hover:text-primary hover:underline"
           rel="noreferrer"
         >
-          {t("support")}
+          Issues
         </a>
         <svg viewBox="0 0 2 2" className="h-0.5 w-0.5 fill-current">
           <circle cx={1} cy={1} r={1} />
         </svg>
         <a
-          href="https://forum.plane.so"
+          href={AGENTPM_ROADMAP_URL}
           target="_blank"
           className="text-13 text-secondary underline-offset-1 outline-none hover:text-primary hover:underline"
           rel="noreferrer"
         >
-          Forum
+          Roadmap
         </a>
       </div>
       <a
-        href="https://plane.so/pages"
+        href={AGENTPM_GITHUB_URL}
         target="_blank"
         className={cn(
           getButtonStyling("secondary", "base"),
@@ -69,8 +70,8 @@ export function ProductUpdatesFooter() {
         )}
         rel="noreferrer"
       >
-        <PlaneLogo className="h-4 w-auto text-primary" />
-        {t("powered_by_plane_pages")}
+        <GithubIcon className="h-4 w-auto text-primary" />
+        AgentPM
       </a>
     </div>
   );

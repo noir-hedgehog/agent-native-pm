@@ -6,7 +6,7 @@
 
 import { observer } from "mobx-react";
 // component
-import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
+import { AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS, EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
 import { NotAuthorizedView } from "@/components/auth-screens/not-authorized-view";
 import { PageHead } from "@/components/core/page-title";
 import { SettingsContentWrapper } from "@/components/settings/content-wrapper";
@@ -25,6 +25,10 @@ function BillingSettingsPage() {
   // derived values
   const canPerformWorkspaceAdminActions = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.WORKSPACE);
   const pageTitle = currentWorkspace?.name ? `${currentWorkspace.name} - Billing & Plans` : undefined;
+
+  if (AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS) {
+    return <NotAuthorizedView section="settings" className="h-auto" />;
+  }
 
   if (workspaceUserInfo && !canPerformWorkspaceAdminActions) {
     return <NotAuthorizedView section="settings" className="h-auto" />;

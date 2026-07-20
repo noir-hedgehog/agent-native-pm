@@ -6,6 +6,7 @@
 
 import { API_BASE_URL } from "@plane/constants";
 import type {
+  IApiToken,
   IWorkspace,
   IWorkspaceMemberMe,
   IWorkspaceMember,
@@ -155,6 +156,78 @@ export class WorkspaceService extends APIService {
 
   async deleteWorkspaceMember(workspaceSlug: string, memberId: string): Promise<any> {
     return this.delete(`/api/workspaces/${workspaceSlug}/members/${memberId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async listWorkspaceMemberApiTokens(workspaceSlug: string, memberId: string): Promise<IApiToken[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/members/${memberId}/api-tokens/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createWorkspaceMemberApiToken(
+    workspaceSlug: string,
+    memberId: string,
+    data: Partial<IApiToken>
+  ): Promise<IApiToken> {
+    return this.post(`/api/workspaces/${workspaceSlug}/members/${memberId}/api-tokens/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async deleteWorkspaceMemberApiToken(workspaceSlug: string, memberId: string, tokenId: string): Promise<IApiToken> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/members/${memberId}/api-tokens/${tokenId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async listWorkspaceAgents(workspaceSlug: string): Promise<any[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/agents/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createWorkspaceAgent(workspaceSlug: string, data: Record<string, unknown>): Promise<any> {
+    return this.post(`/api/workspaces/${workspaceSlug}/agents/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async updateWorkspaceAgent(workspaceSlug: string, memberId: string, data: Record<string, unknown>): Promise<any> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/agents/${memberId}/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async listAgentApplications(workspaceSlug: string, status = "pending"): Promise<any[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/agent-applications/`, { params: { status } })
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async reviewAgentApplication(
+    workspaceSlug: string,
+    applicationId: string,
+    data: Record<string, unknown>
+  ): Promise<any> {
+    return this.patch(`/api/workspaces/${workspaceSlug}/agent-applications/${applicationId}/`, data)
       .then((response) => response?.data)
       .catch((error) => {
         throw error?.response?.data;

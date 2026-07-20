@@ -14,6 +14,7 @@ import { LogoSpinner } from "@/components/common/logo-spinner";
 import { EmptySpace, EmptySpaceItem } from "@/components/ui/empty-space";
 // constants
 import { WORKSPACE_INVITATION } from "@/constants/fetch-keys";
+import { AGENTPM_GITHUB_URL, AGENTPM_ROADMAP_URL } from "@/constants/agentpm";
 // helpers
 import { EPageTypes } from "@/helpers/authentication.helper";
 // hooks
@@ -111,11 +112,11 @@ function WorkspaceInvitationPage() {
               ) : (
                 <EmptySpaceItem Icon={Boxes} title="Continue to home" href="/" />
               )}
-              <EmptySpaceItem Icon={Star} title="Star us on GitHub" href="https://github.com/makeplane" />
+              <EmptySpaceItem Icon={Star} title="Star us on GitHub" href={AGENTPM_GITHUB_URL} />
               <EmptySpaceItem
                 Icon={Share2}
-                title="Join our community of active creators"
-                href="https://forum.plane.so"
+                title="View our roadmap"
+                href={AGENTPM_ROADMAP_URL}
               />
             </EmptySpace>
           )

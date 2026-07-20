@@ -18,6 +18,7 @@ import { useMember } from "@/hooks/store/use-member";
 import { useUserPermissions } from "@/hooks/store/user";
 // local imports
 import { MemberListFiltersDropdown } from "./dropdowns/filters/member-list";
+import { AddProjectAgentModal } from "./add-project-agent-modal";
 import { ProjectMemberListItem } from "./member-list-item";
 import { SendProjectInvitationModal } from "./send-project-invitation-modal";
 
@@ -29,10 +30,11 @@ type TProjectMemberListProps = {
 export const ProjectMemberList = observer(function ProjectMemberList(props: TProjectMemberListProps) {
   const { projectId, workspaceSlug } = props;
   // states
+  const [addAgentModal, setAddAgentModal] = useState(false);
   const [inviteModal, setInviteModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const {
-    project: { projectMemberIds, getFilteredProjectMemberDetails, filters },
+    project: { projectMemberIds, fetchProjectMembers, getFilteredProjectMemberDetails, filters },
   } = useMember();
   const { allowPermissions } = useUserPermissions();
 
@@ -81,6 +83,13 @@ export const ProjectMemberList = observer(function ProjectMemberList(props: TPro
         projectId={projectId}
         workspaceSlug={workspaceSlug}
       />
+      <AddProjectAgentModal
+        isOpen={addAgentModal}
+        onClose={() => setAddAgentModal(false)}
+        onSuccess={() => void fetchProjectMembers(workspaceSlug, projectId, true)}
+        projectId={projectId}
+        workspaceSlug={workspaceSlug}
+      />
       <div className="flex items-center justify-between gap-4 overflow-x-hidden border-b border-subtle py-2">
         <div className="text-14 font-semibold">{t("common.members")}</div>
         <div className="flex items-center gap-2">
@@ -100,15 +109,20 @@ export const ProjectMemberList = observer(function ProjectMemberList(props: TPro
             memberType="project"
           />
           {isAdmin && (
-            <Button
-              variant="primary"
-              onClick={() => {
-                setInviteModal(true);
-              }}
-              data-ph-element={MEMBER_TRACKER_ELEMENTS.HEADER_ADD_BUTTON}
-            >
-              {t("add_member")}
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => setAddAgentModal(true)}>
+                Add Agent
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setInviteModal(true);
+                }}
+                data-ph-element={MEMBER_TRACKER_ELEMENTS.HEADER_ADD_BUTTON}
+              >
+                {t("add_member")}
+              </Button>
+            </>
           )}
         </div>
       </div>

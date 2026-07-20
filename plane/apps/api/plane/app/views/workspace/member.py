@@ -3,25 +3,40 @@
 # See the LICENSE file for details.
 
 # Django imports
+from django.db import transaction
 from django.db.models import Count, Q, OuterRef, Subquery, IntegerField
 from django.utils import timezone
 from django.db.models.functions import Coalesce
 
 # Third party modules
+from uuid import uuid4
+
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from plane.app.permissions import WorkspaceEntityPermission, allow_permission, ROLE
 
 # Module imports
 from plane.app.serializers import (
+    APITokenReadSerializer,
+    APITokenSerializer,
     ProjectMemberRoleSerializer,
     WorkspaceMemberAdminSerializer,
     WorkspaceMemberMeSerializer,
     WorkSpaceMemberSerializer,
 )
 from plane.app.views.base import BaseAPIView
-from plane.db.models import Project, ProjectMember, WorkspaceMember, DraftIssue
+from plane.db.models import (
+    APIToken,
+    AgentRegistrationApplication,
+    DraftIssue,
+    Project,
+    ProjectMember,
+    User,
+    Workspace,
+    WorkspaceMember,
+)
 from plane.utils.cache import invalidate_cache
 
 from .. import BaseViewSet
@@ -212,6 +227,301 @@ class WorkspaceMemberUserViewsEndpoint(BaseAPIView):
         workspace_member.save()
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WorkspaceMemberAPITokenEndpoint(BaseAPIView):
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug, member_id, pk=None):
+        workspace_member = WorkspaceMember.objects.get(
+            workspace__slug=slug,
+            member_id=member_id,
+            member__is_bot=True,
+            is_active=True,
+        )
+        queryset = APIToken.objects.filter(
+            workspace=workspace_member.workspace,
+            user=workspace_member.member,
+            is_service=True,
+        )
+        if pk is None:
+            serializer = APITokenReadSerializer(queryset, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        serializer = APITokenReadSerializer(queryset.get(pk=pk))
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug, member_id):
+        workspace_member = WorkspaceMember.objects.get(
+            workspace__slug=slug,
+            member_id=member_id,
+            member__is_bot=True,
+            is_active=True,
+        )
+        api_token = APIToken.objects.create(
+            label=request.data.get("label", str(uuid4().hex)),
+            description=request.data.get("description", ""),
+            expired_at=request.data.get("expired_at", None),
+            user=workspace_member.member,
+            user_type=1,
+            workspace=workspace_member.workspace,
+            is_service=True,
+            allowed_rate_limit=request.data.get("allowed_rate_limit", "1000/min"),
+        )
+        serializer = APITokenSerializer(api_token)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def delete(self, request, slug, member_id, pk):
+        workspace_member = WorkspaceMember.objects.get(
+            workspace__slug=slug,
+            member_id=member_id,
+            member__is_bot=True,
+            is_active=True,
+        )
+        APIToken.objects.get(
+            pk=pk,
+            workspace=workspace_member.workspace,
+            user=workspace_member.member,
+            is_service=True,
+        ).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _agent_id(value):
+    import re
+
+    normalized = str(value or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,62}", normalized):
+        raise ValueError("agent_id must contain 2-63 lowercase letters, numbers, hyphens, or underscores")
+    return normalized
+
+
+def _agent_role(value, default=15):
+    roles = {"admin": 20, "member": 15, "guest": 5, 20: 20, 15: 15, 5: 5, "20": 20, "15": 15, "5": 5}
+    if value in (None, ""):
+        return default
+    if value not in roles:
+        raise ValueError("role must be admin, member, or guest")
+    return roles[value]
+
+
+def _serialize_agent_application(application):
+    return {
+        "id": str(application.id),
+        "agent_id": application.agent_id,
+        "display_name": application.display_name,
+        "email": application.email,
+        "requested_role": application.requested_role,
+        "reason": application.reason,
+        "status": application.status,
+        "source": application.source,
+        "project_id": str(application.project_id) if application.project_id else None,
+        "review_note": application.review_note,
+        "reviewed_by": str(application.reviewed_by_id) if application.reviewed_by_id else None,
+        "created_at": application.created_at,
+        "reviewed_at": application.reviewed_at,
+    }
+
+
+def _create_agent_account(*, workspace, actor, payload):
+    agent_id = _agent_id(payload.get("agent_id"))
+    display_name = str(payload.get("display_name") or agent_id).strip()
+    email = str(payload.get("email") or f"agent-{agent_id}@agentpm.local").strip().lower()
+    workspace_role = _agent_role(payload.get("workspace_role") or payload.get("requested_role"), 15)
+    project_role = _agent_role(payload.get("project_role") or payload.get("requested_role"), 15)
+    project_id = payload.get("project_id")
+
+    with transaction.atomic():
+        user, _ = User.objects.get_or_create(
+            email=email,
+            defaults={"username": f"agent-{agent_id}", "display_name": display_name},
+        )
+        if not user.is_bot and WorkspaceMember.objects.filter(member=user).exists():
+            raise ValueError("email already belongs to a human Plane user")
+        user.username = f"agent-{agent_id}"
+        user.display_name = display_name
+        user.first_name = display_name
+        user.last_name = "Agent"
+        user.is_active = True
+        user.is_email_verified = True
+        user.is_email_valid = True
+        user.is_bot = True
+        user.bot_type = "WORKSPACE_SEED"
+        user.set_unusable_password()
+        user.save()
+
+        workspace_member, _ = WorkspaceMember.objects.get_or_create(
+            workspace=workspace,
+            member=user,
+            defaults={"role": workspace_role, "is_active": True},
+        )
+        workspace_member.role = workspace_role
+        workspace_member.is_active = True
+        workspace_member.save()
+
+        if project_id:
+            project = Project.objects.get(workspace=workspace, id=project_id)
+            project_member, _ = ProjectMember.objects.get_or_create(
+                workspace=workspace,
+                project=project,
+                member=user,
+                defaults={"role": project_role, "is_active": True},
+            )
+            project_member.role = project_role
+            project_member.is_active = True
+            project_member.save()
+
+        token = None
+        if payload.get("create_token", True):
+            token = APIToken.objects.create(
+                label=f"AgentPM {agent_id} MCP",
+                description=f"AgentPM MCP token for {display_name}",
+                user=user,
+                user_type=1,
+                workspace=workspace,
+                is_service=True,
+                allowed_rate_limit="1000/min",
+            )
+
+    return {
+        "workspace_member_id": str(workspace_member.id),
+        "user": {"id": str(user.id), "agent_id": agent_id, "display_name": display_name, "email": email, "is_bot": True},
+        "workspace_role": workspace_member.role,
+        "token": APITokenSerializer(token).data if token else None,
+    }
+
+
+class AgentRegistrationRequestEndpoint(BaseAPIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, slug):
+        try:
+            workspace = Workspace.objects.get(slug=slug)
+            agent_id = _agent_id(request.data.get("agent_id"))
+            requested_role = str(request.data.get("requested_role") or "member").lower()
+            _agent_role(requested_role)
+            existing = AgentRegistrationApplication.objects.filter(
+                workspace=workspace,
+                agent_id=agent_id,
+                status=AgentRegistrationApplication.Status.PENDING,
+            ).first()
+            if existing:
+                return Response(_serialize_agent_application(existing), status=status.HTTP_200_OK)
+            application = AgentRegistrationApplication.objects.create(
+                workspace=workspace,
+                project_id=request.data.get("project_id") or None,
+                agent_id=agent_id,
+                display_name=str(request.data.get("display_name") or agent_id).strip(),
+                email=str(request.data.get("email") or f"agent-{agent_id}@agentpm.local").strip().lower(),
+                requested_role=requested_role,
+                reason=str(request.data.get("reason") or "").strip(),
+            )
+            return Response(_serialize_agent_application(application), status=status.HTTP_201_CREATED)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class WorkspaceAgentEndpoint(BaseAPIView):
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug):
+        members = WorkspaceMember.objects.filter(
+            workspace__slug=slug,
+            member__is_bot=True,
+        ).select_related("member").order_by("member__display_name")
+        return Response(
+            [
+                {
+                    "workspace_member_id": str(member.id),
+                    "user_id": str(member.member_id),
+                    "agent_id": _agent_id((member.member.username or "agent-unknown").removeprefix("agent-")),
+                    "display_name": member.member.display_name,
+                    "email": member.member.email,
+                    "role": member.role,
+                    "is_active": member.is_active and member.member.is_active,
+                }
+                for member in members
+            ],
+            status=status.HTTP_200_OK,
+        )
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug):
+        try:
+            workspace = Workspace.objects.get(slug=slug)
+            return Response(
+                _create_agent_account(workspace=workspace, actor=request.user, payload=request.data),
+                status=status.HTTP_201_CREATED,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class WorkspaceAgentDetailEndpoint(BaseAPIView):
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def patch(self, request, slug, member_id):
+        try:
+            member = WorkspaceMember.objects.select_related("member").get(
+                id=member_id, workspace__slug=slug, member__is_bot=True
+            )
+            if "role" in request.data:
+                member.role = _agent_role(request.data.get("role"))
+            if "is_active" in request.data:
+                active = bool(request.data.get("is_active"))
+                member.is_active = active
+                member.member.is_active = active
+                member.member.save(update_fields=["is_active", "updated_at"])
+                ProjectMember.objects.filter(workspace=member.workspace, member=member.member).update(is_active=active)
+            member.save()
+            return Response({"workspace_member_id": str(member.id), "role": member.role, "is_active": member.is_active})
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class WorkspaceAgentApplicationEndpoint(BaseAPIView):
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug, pk=None):
+        queryset = AgentRegistrationApplication.objects.filter(workspace__slug=slug)
+        if request.query_params.get("status"):
+            queryset = queryset.filter(status=request.query_params["status"])
+        if pk:
+            return Response(_serialize_agent_application(queryset.get(pk=pk)))
+        return Response([_serialize_agent_application(item) for item in queryset[:100]])
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def patch(self, request, slug, pk):
+        application = AgentRegistrationApplication.objects.get(workspace__slug=slug, pk=pk)
+        if application.status != AgentRegistrationApplication.Status.PENDING:
+            return Response({"error": "application has already been reviewed"}, status=status.HTTP_409_CONFLICT)
+        action = str(request.data.get("action") or "").lower()
+        if action not in {"approve", "reject"}:
+            return Response({"error": "action must be approve or reject"}, status=status.HTTP_400_BAD_REQUEST)
+        application.reviewed_by = request.user
+        application.review_note = str(request.data.get("review_note") or "")
+        application.reviewed_at = timezone.now()
+        if action == "reject":
+            application.status = AgentRegistrationApplication.Status.REJECTED
+            application.save()
+            return Response(_serialize_agent_application(application))
+        try:
+            account = _create_agent_account(
+                workspace=application.workspace,
+                actor=request.user,
+                payload={
+                    "agent_id": application.agent_id,
+                    "display_name": application.display_name,
+                    "email": application.email,
+                    "requested_role": request.data.get("role") or application.requested_role,
+                    "project_id": request.data.get("project_id") or application.project_id,
+                    "project_role": request.data.get("role") or application.requested_role,
+                },
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        application.status = AgentRegistrationApplication.Status.APPROVED
+        application.save()
+        return Response({"application": _serialize_agent_application(application), "account": account})
 
 
 class WorkspaceMemberUserEndpoint(BaseAPIView):

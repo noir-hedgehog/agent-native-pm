@@ -8,6 +8,8 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import { EUserPermissions, EUserPermissionsLevel, LOGIN_MEDIUM_LABELS } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
+import { Button } from "@plane/propel/button";
+import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { renderFormattedDate } from "@plane/utils";
 import { MemberHeaderColumn } from "@/components/project/member-header-column";
 import type { RowData } from "@/components/workspace/settings/member-columns";
@@ -15,10 +17,14 @@ import { AccountTypeColumn, NameColumn } from "@/components/workspace/settings/m
 import { useMember } from "@/hooks/store/use-member";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 import type { IMemberFilters } from "@/store/member/utils";
+import { WorkspaceService } from "@/services/workspace.service";
+
+const workspaceService = new WorkspaceService();
 
 export const useMemberColumns = () => {
   // states
   const [removeMemberModal, setRemoveMemberModal] = useState<RowData | null>(null);
+  const [tokenMemberModal, setTokenMemberModal] = useState<RowData | null>(null);
 
   const { workspaceSlug } = useParams();
 
@@ -26,6 +32,7 @@ export const useMemberColumns = () => {
   const { allowPermissions } = useUserPermissions();
   const {
     workspace: {
+      fetchWorkspaceMembers,
       filtersStore: { filters, updateFilters },
     },
   } = useMember();
@@ -95,8 +102,8 @@ export const useMemberColumns = () => {
     },
 
     {
-      key: "Account type",
-      content: t("workspace_settings.settings.members.details.account_type"),
+      key: "Workspace role",
+      content: "Workspace role",
       thRender: () => (
         <MemberHeaderColumn
           property="role"
@@ -108,13 +115,59 @@ export const useMemberColumns = () => {
     },
 
     {
+      key: "Account type",
+      content: "Account type",
+      tdRender: (rowData: RowData) => {
+        if (isSuspended(rowData)) return null;
+        return (
+          <span className="inline-flex w-20 rounded-sm bg-surface-2 px-2 py-0.5 text-11 font-medium text-secondary">
+            {rowData.member.is_bot ? "Agent" : "Human"}
+          </span>
+        );
+      },
+    },
+
+    {
+      key: "Tokens",
+      content: "Tokens",
+      tdRender: (rowData: RowData) => {
+        if (!rowData.member.is_bot || !isAdmin) return null;
+        const slug = workspaceSlug?.toString();
+        const toggleAgent = async () => {
+          if (!slug) return;
+          try {
+            await workspaceService.updateWorkspaceAgent(slug, rowData.id, { is_active: !rowData.is_active });
+            await fetchWorkspaceMembers(slug);
+            setToast({
+              type: TOAST_TYPE.SUCCESS,
+              title: rowData.is_active ? "Agent disabled" : "Agent enabled",
+              message: `${rowData.member.display_name} access was updated.`,
+            });
+          } catch (error) {
+            setToast({
+              type: TOAST_TYPE.ERROR,
+              title: "Agent update failed",
+              message: (error as { error?: string })?.error || "Could not update the Agent.",
+            });
+          }
+        };
+        return (
+          <div className="flex items-center gap-1">
+            <Button variant="secondary" size="sm" onClick={() => setTokenMemberModal(rowData)}>Tokens</Button>
+            <Button variant="secondary" size="sm" onClick={() => void toggleAgent()}>{rowData.is_active ? "Disable" : "Enable"}</Button>
+          </div>
+        );
+      },
+    },
+
+    {
       key: "Authentication",
       content: t("workspace_settings.settings.members.details.authentication"),
       tdRender: (rowData: RowData) => {
         if (isSuspended(rowData)) return null;
-        const loginMedium = rowData.member.last_login_medium;
+        const loginMedium = (rowData.member as typeof rowData.member & { last_login_medium?: string }).last_login_medium;
         if (!loginMedium) return null;
-        return <div>{LOGIN_MEDIUM_LABELS[loginMedium]}</div>;
+        return <div>{LOGIN_MEDIUM_LABELS[loginMedium as keyof typeof LOGIN_MEDIUM_LABELS]}</div>;
       },
     },
 
@@ -132,5 +185,5 @@ export const useMemberColumns = () => {
       ),
     },
   ];
-  return { columns, workspaceSlug, removeMemberModal, setRemoveMemberModal };
+  return { columns, workspaceSlug, removeMemberModal, setRemoveMemberModal, tokenMemberModal, setTokenMemberModal };
 };

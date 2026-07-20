@@ -67,4 +67,32 @@ export class APITokenService extends APIService {
         throw error?.response?.data;
       });
   }
+
+  async listMemberTokens(workspaceSlug: string, memberId: string): Promise<IApiToken[]> {
+    return this.get(`/api/workspaces/${workspaceSlug}/members/${memberId}/api-tokens/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async createMemberToken(
+    workspaceSlug: string,
+    memberId: string,
+    data: Partial<IApiToken>
+  ): Promise<IApiToken> {
+    return this.post(`/api/workspaces/${workspaceSlug}/members/${memberId}/api-tokens/`, data)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
+  async destroyMemberToken(workspaceSlug: string, memberId: string, tokenId: string): Promise<IApiToken> {
+    return this.delete(`/api/workspaces/${workspaceSlug}/members/${memberId}/api-tokens/${tokenId}/`)
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
 }

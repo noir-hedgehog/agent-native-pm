@@ -1,8 +1,15 @@
 packages:
-- apps/*
-- packages/*
-- "!apps/api"
-- "!apps/proxy"
+  - apps/*
+  - packages/*
+  - "!apps/api"
+  - "!apps/proxy"
+
+allowBuilds:
+  '@parcel/watcher': set this to true or false
+  '@swc/core': set this to true or false
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  sharp: set this to true or false
 
 catalog:
   "@atlaskit/pragmatic-drag-and-drop-auto-scroll": 1.4.0
@@ -36,4 +43,4 @@ catalog:
   vite: 7.3.1
 
 onlyBuiltDependencies:
-- turbo
+  - turbo

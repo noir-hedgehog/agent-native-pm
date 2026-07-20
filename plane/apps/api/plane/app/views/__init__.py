@@ -18,10 +18,17 @@ from .project.invite import (
 )
 
 from .project.member import (
+    ProjectAgentMemberEndpoint,
     ProjectMemberViewSet,
     ProjectMemberUserEndpoint,
     UserProjectRolesEndpoint,
     ProjectMemberPreferenceEndpoint,
+)
+from .project.agent_policy import (
+    AgentPolicyApprovalEndpoint,
+    AgentPolicyEndpoint,
+    AgentPolicyHistoryEndpoint,
+    AgentPolicyRuntimeEndpoint,
 )
 
 from .user.base import (
@@ -55,7 +62,12 @@ from .workspace.recent_visit import UserRecentVisitViewSet
 from .workspace.user_preference import WorkspaceUserPreferenceViewSet
 
 from .workspace.member import (
+    AgentRegistrationRequestEndpoint,
     WorkSpaceMemberViewSet,
+    WorkspaceAgentApplicationEndpoint,
+    WorkspaceAgentDetailEndpoint,
+    WorkspaceAgentEndpoint,
+    WorkspaceMemberAPITokenEndpoint,
     WorkspaceMemberUserEndpoint,
     WorkspaceProjectMemberEndpoint,
     WorkspaceMemberUserViewsEndpoint,

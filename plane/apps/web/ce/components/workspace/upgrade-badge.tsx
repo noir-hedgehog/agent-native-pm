@@ -5,6 +5,7 @@
  */
 
 // helpers
+import { AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
 import { cn } from "@plane/utils";
 
@@ -17,6 +18,8 @@ export function UpgradeBadge(props: TUpgradeBadge) {
   const { className, size = "sm" } = props;
 
   const { t } = useTranslation();
+
+  if (AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS) return null;
 
   return (
     <div

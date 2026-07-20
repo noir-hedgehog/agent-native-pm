@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 
 from .analytic import AnalyticView
+from .agent import AgentRegistrationApplication
 from .api import APIActivityLog, APIToken
 from .asset import FileAsset
 from .base import BaseModel

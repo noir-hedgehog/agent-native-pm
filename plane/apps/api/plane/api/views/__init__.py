@@ -62,4 +62,6 @@ from .user import UserEndpoint
 
 from .invite import WorkspaceInvitationsViewset
 
+from .mcp import PlaneNativeMcpEndpoint
+
 from .sticky import StickyViewSet

@@ -14,7 +14,7 @@ import { ROLE, EUserPermissions, EUserPermissionsLevel, MEMBER_TRACKER_ELEMENTS 
 import { TrashIcon, SuspendedUserIcon } from "@plane/propel/icons";
 import { Pill, EPillVariant, EPillSize } from "@plane/propel/pill";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import type { IUser, IWorkspaceMember } from "@plane/types";
+import type { IUser, IUserLite } from "@plane/types";
 // plane ui
 import { CustomSelect, PopoverMenu } from "@plane/ui";
 // helpers
@@ -24,7 +24,8 @@ import { useMember } from "@/hooks/store/use-member";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 
 export interface RowData {
-  member: IWorkspaceMember;
+  id: string;
+  member: IUserLite;
   role: EUserPermissions;
   is_active: boolean;
 }

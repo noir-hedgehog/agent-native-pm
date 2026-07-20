@@ -7,6 +7,7 @@
 // plane imports
 import type { TWorkspaceSettingsItem, TWorkspaceSettingsTabs } from "@plane/types";
 import { EUserWorkspaceRoles } from "@plane/types";
+import { AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS } from "../commercial";
 
 export enum WORKSPACE_SETTINGS_CATEGORY {
   ADMINISTRATION = "administration",
@@ -66,7 +67,7 @@ export const GROUPED_WORKSPACE_SETTINGS: Record<WORKSPACE_SETTINGS_CATEGORY, TWo
   [WORKSPACE_SETTINGS_CATEGORY.ADMINISTRATION]: [
     WORKSPACE_SETTINGS["general"],
     WORKSPACE_SETTINGS["members"],
-    WORKSPACE_SETTINGS["billing-and-plans"],
+    ...(!AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS ? [WORKSPACE_SETTINGS["billing-and-plans"]] : []),
     WORKSPACE_SETTINGS["export"],
   ],
   [WORKSPACE_SETTINGS_CATEGORY.FEATURES]: [],

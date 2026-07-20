@@ -1,0 +1,34 @@
+name: AgentPM Plane CE
+
+on:
+  push:
+    branches: [preview, main]
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "apps/web/**"
+      - "packages/**"
+      - "docker-compose.yml"
+      - "apps/proxy/**"
+
+jobs:
+  api-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose build api
+      - run: docker compose run --rm api python manage.py check
+      - run: docker compose run --rm api python manage.py makemigrations --check --dry-run
+      - run: docker compose run --rm api sh -lc 'pip install -q -r requirements/test.txt && pytest plane/tests/contract/api/test_mcp.py -q'
+
+  web-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web check:types

@@ -4,12 +4,14 @@
  * See the LICENSE file for details.
  */
 
+import { AGENTPM_NEW_ISSUE_URL } from "@/constants/agentpm";
+
 export function MaintenanceMessage() {
   const linkMap = [
     {
       key: "mail_to",
-      label: "Contact Support",
-      value: "mailto:support@plane.so",
+      label: "Report issue",
+      value: AGENTPM_NEW_ISSUE_URL,
     },
   ];
 
@@ -21,7 +23,7 @@ export function MaintenanceMessage() {
         </h1>
         <span className="text-left text-14 font-medium text-secondary">
           Some services might have failed to start. Please check your container logs to identify and resolve the issue.
-          If you&apos;re stuck, reach out to our support team for more help.
+          If you&apos;re stuck, open an AgentPM issue with the relevant logs.
         </span>
       </div>
       <div className="mt-1 flex items-center justify-start gap-6">

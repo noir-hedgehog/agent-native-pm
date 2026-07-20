@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 
 # Python imports
+import hashlib
 import logging
 import time
 
@@ -19,6 +20,20 @@ from plane.utils.exception_logger import log_exception
 from plane.bgtasks.logger_task import process_logs
 
 api_logger = logging.getLogger("plane.api.request")
+SENSITIVE_HEADERS = {"authorization", "cookie", "proxy-authorization", "x-api-key", "x-csrftoken"}
+
+
+def api_token_fingerprint(api_key: str) -> str:
+    return f"sha256:{hashlib.sha256(api_key.encode('utf-8')).hexdigest()[:16]}"
+
+
+def redacted_headers(headers) -> str:
+    return str(
+        {
+            key: "[REDACTED]" if key.lower() in SENSITIVE_HEADERS else value
+            for key, value in headers.items()
+        }
+    )
 
 
 class RequestLoggerMiddleware:
@@ -121,11 +136,11 @@ class APITokenLogMiddleware:
 
         try:
             log_data = {
-                "token_identifier": api_key,
+                "token_identifier": api_token_fingerprint(api_key),
                 "path": request.path,
                 "method": request.method,
                 "query_params": request.META.get("QUERY_STRING", ""),
-                "headers": str(request.headers),
+                "headers": redacted_headers(request.headers),
                 "body": self._safe_decode_body(request_body) if request_body else None,
                 "response_body": self._safe_decode_body(response.content) if response.content else None,
                 "response_code": response.status_code,

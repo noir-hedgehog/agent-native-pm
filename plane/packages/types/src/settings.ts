@@ -30,6 +30,7 @@ export type TProjectSettingsTabs =
   | "states"
   | "labels"
   | "estimates"
+  | "agent_policy"
   | "automations";
 export type TProjectSettingsItem = {
   key: TProjectSettingsTabs;

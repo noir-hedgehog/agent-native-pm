@@ -6,6 +6,8 @@
 
 // editor
 import type { TEmbedConfig } from "@plane/editor";
+// plane constants
+import { AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS } from "@plane/constants";
 // plane types
 import type { TSearchEntityRequestPayload, TSearchResponse } from "@plane/types";
 // plane web components
@@ -19,6 +21,12 @@ export type TIssueEmbedHookProps = {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const useIssueEmbed = (props: TIssueEmbedHookProps) => {
+  if (AGENTPM_HIDE_COMMERCIAL_ENTRYPOINTS) {
+    return {
+      issueEmbedProps: {},
+    };
+  }
+
   const widgetCallback = () => <IssueEmbedUpgradeCard />;
 
   const issueEmbedProps: TEmbedConfig["issue"] = {
