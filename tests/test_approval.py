@@ -61,6 +61,26 @@ class ApprovalServiceTests(unittest.TestCase):
         session = self.store.get_task_session(self.session.task_session_id)
         self.assertEqual(session.status, "blocked")
 
+    def test_reminder_is_audited_once(self):
+        approval = self.service.create_transition_approval(
+            task_id="task_1",
+            task_session_id=self.session.task_session_id,
+            from_run_id=self.run.agent_run_id,
+            to_stage_role="reviewer",
+        )
+        pending = self.store._approvals_by_id[approval.approval_id]
+        self.store._approvals_by_id[approval.approval_id] = pending.__class__(
+            **{**pending.__dict__, "created_at": (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()}
+        )
+
+        first = self.service.evaluate_timeouts(reminder_after_hours=24, block_after_hours=72)
+        second = self.service.evaluate_timeouts(reminder_after_hours=24, block_after_hours=72)
+
+        self.assertEqual(first["reminders"], [approval.approval_id])
+        self.assertEqual(second["reminders"], [])
+        reminders = [event for event in self.store.list_audit_events() if event.event_type == "transition_approval.reminder"]
+        self.assertEqual(len(reminders), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

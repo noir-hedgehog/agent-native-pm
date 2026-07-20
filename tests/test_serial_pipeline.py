@@ -56,7 +56,7 @@ class RecordingPlaneAdapter:
     def post_stage_failed(self, **kwargs):
         return {"ok": True}
 
-    def update_task_status(self, *, task_id: str, status: str):
+    def update_task_status(self, *, task_id: str, status: str, **kwargs):
         self.status_updates.append(status)
         return {"ok": True}
 
@@ -84,7 +84,7 @@ class SerialPipelineExecutorTests(unittest.TestCase):
         self.assertTrue(result["completed"])
         self.assertEqual(plane.started_roles, ["coder", "tester", "reviewer"])
         self.assertEqual(plane.completed_count, 3)
-        self.assertIn("awaiting_review", plane.status_updates)
+        self.assertIn("done", plane.status_updates)
 
         self.assertIsNone(agent.start_calls[0]["context"]["previous_handoff"])
         self.assertEqual(
@@ -100,6 +100,29 @@ class SerialPipelineExecutorTests(unittest.TestCase):
             run = store.get_agent_run(run_id)
             self.assertEqual(run.status, "succeeded")
             self.assertIsNotNone(store.get_handoff_contract(run_id))
+
+    def test_pipeline_pauses_when_transition_requires_approval(self):
+        store = InMemoryStore()
+        session, _ = store.get_or_create_session("evt:task-approval", "proj_1", "task_1")
+        agent = DeterministicAgentAdapter()
+        plane = RecordingPlaneAdapter()
+        executor = SerialPipelineExecutor(store=store, agent_adapter=agent, plane_adapter=plane)
+
+        result = executor.execute(
+            project_id="proj_1",
+            task_session_id=session.task_session_id,
+            task_id="task_1",
+            task={"title": "Task", "description": "Desc", "key": "AG-1"},
+            pipeline_roles=["coder", "tester"],
+            agent_profile_by_role={"coder": "iris", "tester": "lingxi"},
+            transition_approval_rules={"coder->tester": True},
+        )
+
+        self.assertFalse(result["completed"])
+        self.assertTrue(result["awaiting_approval"])
+        self.assertEqual(plane.started_roles, ["coder"])
+        self.assertIn("awaiting_review", plane.status_updates)
+        self.assertEqual(len(store.list_pending_transition_approvals()), 1)
 
 
 if __name__ == "__main__":

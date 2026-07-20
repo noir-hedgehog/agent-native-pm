@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Protocol
@@ -126,6 +127,7 @@ class OpenClawAdapter:
         provider_payload = {
             "instruction": payload["instruction"],
             "context": payload.get("context", {}),
+            "agent_id": payload.get("agent_profile") or payload.get("context", {}).get("agent_id"),
             "metadata": {
                 "task_session_id": payload["task_session_id"],
                 "agent_run_id": payload["agent_run_id"],
@@ -184,9 +186,27 @@ class OpenClawAdapter:
         }
 
     def stream_events(self, provider_run_id: str) -> List[Dict[str, Any]]:
-        response = self.transport.get(self._path(self.config.stream_events_path, provider_run_id))
-        events: Iterable[Dict[str, Any]] = response.get(self.config.events_key, response.get("data", []))
-        return [self._normalize_event(provider_run_id, event) for event in events]
+        timeout_seconds = max(1, int(os.environ.get("OPENCLAW_EVENT_TIMEOUT_SECONDS", "900")))
+        poll_seconds = max(0.1, float(os.environ.get("OPENCLAW_EVENT_POLL_SECONDS", "2")))
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            response = self.transport.get(self._path(self.config.stream_events_path, provider_run_id))
+            events: Iterable[Dict[str, Any]] = response.get(self.config.events_key, response.get("data", []))
+            normalized = [self._normalize_event(provider_run_id, event) for event in events]
+            if any(event["type"] in {"run.completed", "run.failed", "run.canceled"} for event in normalized):
+                return normalized
+            time.sleep(poll_seconds)
+        return [
+            {
+                "event_id": None,
+                "provider": "openclaw",
+                "provider_run_id": provider_run_id,
+                "provider_session_id": None,
+                "type": "run.failed",
+                "occurred_at": None,
+                "payload": {"error": f"OpenClaw event polling timed out after {timeout_seconds}s"},
+            }
+        ]
 
     def _normalize_event(self, provider_run_id: str, event: Dict[str, Any]) -> Dict[str, Any]:
         provider_type = event.get("type", event.get("event", "run.output"))

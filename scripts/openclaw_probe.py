@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
-import json
 import urllib.error
 import urllib.request
 
@@ -18,6 +19,11 @@ def request_json(method: str, url: str, token: str | None, api_key: str | None):
 
 
 def probe(base_url: str, path: str, token: str | None, api_key: str | None):
+    if base_url.startswith("ws://"):
+        base_url = "http://" + base_url[len("ws://") :]
+    if base_url.startswith("wss://"):
+        base_url = "https://" + base_url[len("wss://") :]
+
     url = f"{base_url.rstrip('/')}{path}"
     try:
         status, body = request_json("GET", url, token, api_key)

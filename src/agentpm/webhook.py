@@ -45,7 +45,7 @@ def normalize_assignment_event(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # Plane webhook shape: event/action/webhook_id/workspace_id/data
     event = payload.get("event")
-    action = payload.get("action")
+    action = {"created": "create", "updated": "update"}.get(payload.get("action"), payload.get("action"))
     data = payload.get("data", {})
     if not isinstance(data, dict):
         raise InvalidPayloadError("invalid data field in plane webhook payload")
@@ -68,6 +68,12 @@ def normalize_assignment_event(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise InvalidPayloadError("missing project/workspace identifier in webhook payload")
 
     assignee_id = _extract_assignee_id(data)
+    assignment_change = True
+    activity = payload.get("activity")
+    if action == "update" and isinstance(activity, dict):
+        changed_field = str(activity.get("field") or "").lower()
+        if changed_field:
+            assignment_change = changed_field in {"assignee", "assignees", "assignee_ids"}
     return {
         "event_id": payload.get("delivery_id") or payload.get("webhook_id") or f"{event}:{action}:{task_id}",
         "project_id": project_id,
@@ -76,6 +82,7 @@ def normalize_assignment_event(payload: Dict[str, Any]) -> Dict[str, Any]:
         "assignee_id": assignee_id,
         "occurred_at": data.get("updated_at") or data.get("created_at"),
         "actor_id": data.get("updated_by") or data.get("created_by"),
+        "assignment_change": assignment_change,
     }
 
 
@@ -132,6 +139,16 @@ def handle_assignment_webhook(
                 "accepted": False,
                 "ignored": True,
                 "reason": "no_assignee",
+                "event_id": event["event_id"],
+            },
+        )
+    if event.get("assignment_change") is False:
+        return (
+            202,
+            {
+                "accepted": False,
+                "ignored": True,
+                "reason": "not_an_assignment_change",
                 "event_id": event["event_id"],
             },
         )

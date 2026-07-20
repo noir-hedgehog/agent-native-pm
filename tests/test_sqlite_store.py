@@ -2,6 +2,7 @@ import tempfile
 import unittest
 
 from agentpm.persistence.sqlite_store import SqliteStore
+from agentpm.policy import policy_input_from_payload
 from agentpm.store import AuditEvent
 
 
@@ -130,6 +131,26 @@ class SqliteStoreTests(unittest.TestCase):
         )
         self.assertEqual(approved.status, "approved")
         self.assertEqual(self.store.list_pending_transition_approvals(), [])
+
+    def test_project_policy_version_history(self) -> None:
+        payload = {
+            "pipeline_definition": ["coder"],
+            "agent_profile_by_role": {"coder": "iris"},
+            "transition_approval_rules": {"coder->done": False},
+            "transition_timeout_hours": {"reminder": 24, "block": 72},
+            "allowed_actions_by_role": {"coder": ["write_patch"]},
+            "published_by": "user-admin",
+        }
+
+        first = self.store.publish_project_policy(policy_input_from_payload("proj_1", payload))
+        second = self.store.publish_project_policy(
+            policy_input_from_payload("proj_1", {**payload, "change_note": "second"})
+        )
+
+        self.assertEqual(first.version, 1)
+        self.assertEqual(second.version, 2)
+        self.assertEqual(self.store.get_latest_project_policy("proj_1").change_note, "second")
+        self.assertEqual(len(self.store.list_project_policy_versions("proj_1")), 2)
 
 
 if __name__ == "__main__":

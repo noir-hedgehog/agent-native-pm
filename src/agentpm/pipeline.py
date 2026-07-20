@@ -33,16 +33,22 @@ class SerialPipelineExecutor:
     def execute(
         self,
         *,
+        project_id: str | None = None,
         task_session_id: str,
         task_id: str,
         task: Dict[str, Any],
         pipeline_roles: List[str],
         agent_profile_by_role: Dict[str, str],
+        transition_approval_rules: Dict[str, bool] | None = None,
+        start_index: int = 0,
+        previous_handoff: Dict[str, Any] | None = None,
+        existing_run_ids: List[str] | None = None,
     ) -> Dict[str, Any]:
-        previous_handoff: Dict[str, Any] | None = None
-        created_runs: List[str] = []
+        created_runs: List[str] = list(existing_run_ids or [])
+        transition_rules = transition_approval_rules or {}
 
-        for role in pipeline_roles:
+        for index in range(start_index, len(pipeline_roles)):
+            role = pipeline_roles[index]
             agent_profile = agent_profile_by_role[role]
             run = self.store.create_agent_run(
                 task_session_id=task_session_id,
@@ -70,6 +76,7 @@ class SerialPipelineExecutor:
                 started_at=self._now_iso(),
                 task_session_id=task_session_id,
                 agent_run_id=run.agent_run_id,
+                project_id=project_id,
             )
 
             start_result = self.agent_adapter.start_run(
@@ -78,11 +85,26 @@ class SerialPipelineExecutor:
                     "agent_run_id": run.agent_run_id,
                     "task_id": task_id,
                     "stage_role": role,
-                    "instruction": f"Execute stage: {role}",
+                    "agent_profile": agent_profile,
+                    "instruction": (
+                        f"Execute the {role} stage for this work item. "
+                        + str(
+                            task.get("description")
+                            or task.get("description_stripped")
+                            or task.get("description_html")
+                            or task.get("title")
+                            or task.get("name")
+                            or "Complete the assigned work."
+                        )
+                    ),
                     "context": {
-                        "task_title": task.get("title"),
-                        "task_description": task.get("description"),
-                        "task_key": task.get("key"),
+                        "task_title": task.get("title") or task.get("name"),
+                        "task_description": (
+                            task.get("description")
+                            or task.get("description_stripped")
+                            or task.get("description_html")
+                        ),
+                        "task_key": task.get("key") or task.get("identifier"),
                         "previous_handoff": previous_handoff,
                     },
                     "policy": {"max_retry": 1},
@@ -117,6 +139,7 @@ class SerialPipelineExecutor:
                         evidence=None,
                         task_session_id=task_session_id,
                         agent_run_id=run.agent_run_id,
+                        project_id=project_id,
                     )
 
                 if stream_type == "run.failed":
@@ -131,8 +154,9 @@ class SerialPipelineExecutor:
                         escalation_request="manual intervention required",
                         task_session_id=task_session_id,
                         agent_run_id=run.agent_run_id,
+                        project_id=project_id,
                     )
-                    self.plane_adapter.update_task_status(task_id=task_id, status="failed")
+                    self.plane_adapter.update_task_status(task_id=task_id, status="failed", project_id=project_id)
                     return {
                         "completed": False,
                         "failed_stage": role,
@@ -158,6 +182,7 @@ class SerialPipelineExecutor:
                         handoff=handoff,
                         task_session_id=task_session_id,
                         agent_run_id=run.agent_run_id,
+                        project_id=project_id,
                     )
                     self.store.add_audit_event(
                         AuditEvent(
@@ -173,7 +198,7 @@ class SerialPipelineExecutor:
             if not completed:
                 self.store.transition_agent_run(run.agent_run_id, "failed")
                 self.store.update_task_session_status(task_session_id, "failed")
-                self.plane_adapter.update_task_status(task_id=task_id, status="failed")
+                self.plane_adapter.update_task_status(task_id=task_id, status="failed", project_id=project_id)
                 return {
                     "completed": False,
                     "failed_stage": role,
@@ -181,8 +206,50 @@ class SerialPipelineExecutor:
                     "agent_run_ids": created_runs,
                 }
 
-        self.store.update_task_session_status(task_session_id, "awaiting_review")
-        self.plane_adapter.update_task_status(task_id=task_id, status="awaiting_review")
+            next_stage = pipeline_roles[index + 1] if index + 1 < len(pipeline_roles) else "done"
+            transition_key = f"{role}->{next_stage}"
+            if transition_rules.get(transition_key):
+                approval = self.store.create_transition_approval(
+                    task_session_id=task_session_id,
+                    from_run_id=run.agent_run_id,
+                    to_stage_role=next_stage,
+                )
+                self.store.update_task_session_status(task_session_id, "awaiting_review")
+                self.store.add_audit_event(
+                    AuditEvent(
+                        event_type="transition_approval.created",
+                        task_id=task_id,
+                        task_session_id=task_session_id,
+                        payload={
+                            "approval_id": approval.approval_id,
+                            "from_stage_role": role,
+                            "to_stage_role": next_stage,
+                            "transition_key": transition_key,
+                        },
+                        occurred_at=self._now_iso(),
+                    )
+                )
+                self.plane_adapter.update_task_status(task_id=task_id, status="awaiting_review", project_id=project_id)
+                self.plane_adapter.post_stage_progress(
+                    task_id=task_id,
+                    stage_role="approval",
+                    summary=f"Awaiting human approval for {transition_key}",
+                    evidence=None,
+                    task_session_id=task_session_id,
+                    agent_run_id=run.agent_run_id,
+                    project_id=project_id,
+                )
+                return {
+                    "completed": False,
+                    "awaiting_approval": True,
+                    "approval_id": approval.approval_id,
+                    "task_session_id": task_session_id,
+                    "agent_run_ids": created_runs,
+                    "final_handoff": previous_handoff,
+                }
+
+        self.store.update_task_session_status(task_session_id, "done")
+        self.plane_adapter.update_task_status(task_id=task_id, status="done", project_id=project_id)
         self.plane_adapter.post_stage_progress(
             task_id=task_id,
             stage_role="pipeline",
@@ -190,6 +257,7 @@ class SerialPipelineExecutor:
             evidence=None,
             task_session_id=task_session_id,
             agent_run_id=None,
+            project_id=project_id,
         )
 
         return {

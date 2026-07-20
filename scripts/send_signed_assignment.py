@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import urllib.error
 import urllib.request
 
 
@@ -50,10 +51,15 @@ def main() -> None:
         method="POST",
     )
 
-    with urllib.request.urlopen(req) as resp:  # nosec B310
-        body = resp.read().decode("utf-8")
-        print(resp.status)
-        print(body)
+    try:
+        with urllib.request.urlopen(req) as resp:  # nosec B310
+            body = resp.read().decode("utf-8")
+            print(resp.status)
+            print(body)
+    except urllib.error.HTTPError as exc:
+        print(exc.code)
+        print(exc.read().decode("utf-8"))
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

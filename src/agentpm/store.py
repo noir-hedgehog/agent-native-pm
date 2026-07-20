@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Protocol, Tuple
 from uuid import uuid4
 
+from .policy import ProjectPolicyInput
+
 
 @dataclass
 class TaskSession:
@@ -64,6 +66,37 @@ class TransitionApproval:
     resolved_at: str | None
 
 
+@dataclass
+class ProjectPolicy:
+    policy_id: str
+    project_id: str
+    version: int
+    pipeline_definition: list[str]
+    agent_profile_by_role: dict[str, str]
+    transition_approval_rules: dict[str, bool]
+    transition_timeout_hours: dict[str, int]
+    allowed_actions_by_role: dict[str, list[str]]
+    published_by: str
+    change_note: str | None
+    created_at: str
+
+    @property
+    def public_dict(self) -> dict:
+        return {
+            "policy_id": self.policy_id,
+            "project_id": self.project_id,
+            "version": self.version,
+            "pipeline_definition": self.pipeline_definition,
+            "agent_profile_by_role": self.agent_profile_by_role,
+            "transition_approval_rules": self.transition_approval_rules,
+            "transition_timeout_hours": self.transition_timeout_hours,
+            "allowed_actions_by_role": self.allowed_actions_by_role,
+            "published_by": self.published_by,
+            "change_note": self.change_note,
+            "created_at": self.created_at,
+        }
+
+
 class Store(Protocol):
     def get_or_create_session(self, idempotency_key: str, project_id: str, task_id: str) -> Tuple[TaskSession, bool]:
         ...
@@ -104,16 +137,34 @@ class Store(Protocol):
     ) -> TransitionApproval:
         ...
 
+    def get_transition_approval(self, approval_id: str) -> TransitionApproval | None:
+        ...
+
     def list_pending_transition_approvals(self) -> list[TransitionApproval]:
         ...
 
+    def publish_project_policy(self, policy: ProjectPolicyInput) -> ProjectPolicy:
+        ...
+
+    def get_latest_project_policy(self, project_id: str) -> ProjectPolicy | None:
+        ...
+
+    def list_project_policy_versions(self, project_id: str) -> list[ProjectPolicy]:
+        ...
+
     def list_agent_runs_for_session(self, task_session_id: str) -> list[AgentRun]:
+        ...
+
+    def get_task_session(self, task_session_id: str) -> TaskSession | None:
         ...
 
     def list_task_sessions(self) -> list[TaskSession]:
         ...
 
     def list_audit_events_for_task(self, task_id: str) -> list[AuditEvent]:
+        ...
+
+    def list_audit_events(self) -> list[AuditEvent]:
         ...
 
 
@@ -126,6 +177,7 @@ class InMemoryStore:
         self._agent_runs_by_id: Dict[str, AgentRun] = {}
         self._handoff_by_run_id: Dict[str, HandoffContract] = {}
         self._approvals_by_id: Dict[str, TransitionApproval] = {}
+        self._project_policies_by_project: Dict[str, List[ProjectPolicy]] = {}
         self._audit_events: List[AuditEvent] = []
 
     @staticmethod
@@ -308,8 +360,36 @@ class InMemoryStore:
         self._approvals_by_id[approval_id] = updated
         return updated
 
+    def get_transition_approval(self, approval_id: str) -> TransitionApproval | None:
+        return self._approvals_by_id.get(approval_id)
+
     def list_pending_transition_approvals(self) -> list[TransitionApproval]:
         return [approval for approval in self._approvals_by_id.values() if approval.status == "pending"]
+
+    def publish_project_policy(self, policy: ProjectPolicyInput) -> ProjectPolicy:
+        versions = self._project_policies_by_project.setdefault(policy.project_id, [])
+        published = ProjectPolicy(
+            policy_id=f"pp_{uuid4().hex[:12]}",
+            project_id=policy.project_id,
+            version=len(versions) + 1,
+            pipeline_definition=list(policy.pipeline_definition),
+            agent_profile_by_role=dict(policy.agent_profile_by_role),
+            transition_approval_rules=dict(policy.transition_approval_rules),
+            transition_timeout_hours=dict(policy.transition_timeout_hours),
+            allowed_actions_by_role={role: list(actions) for role, actions in policy.allowed_actions_by_role.items()},
+            published_by=policy.published_by,
+            change_note=policy.change_note,
+            created_at=self._now_iso(),
+        )
+        versions.append(published)
+        return published
+
+    def get_latest_project_policy(self, project_id: str) -> ProjectPolicy | None:
+        versions = self._project_policies_by_project.get(project_id) or []
+        return versions[-1] if versions else None
+
+    def list_project_policy_versions(self, project_id: str) -> list[ProjectPolicy]:
+        return list(self._project_policies_by_project.get(project_id) or [])
 
 
 def _validate_agent_run_transition(from_status: str, to_status: str) -> None:

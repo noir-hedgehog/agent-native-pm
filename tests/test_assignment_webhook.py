@@ -111,6 +111,31 @@ class AssignmentWebhookTests(unittest.TestCase):
         self.assertTrue(response["accepted"])
         self.assertEqual(response["idempotency_key"], "delivery_123:issue_1")
 
+    def test_accepts_plane_past_tense_action_shape(self) -> None:
+        payload = {
+            "event": "issue",
+            "action": "created",
+            "webhook_id": "wh_1",
+            "workspace_id": "ws_1",
+            "data": {
+                "id": "issue_1",
+                "project_id": "proj_1",
+                "assignees": [{"id": "agent_openclaw_coder"}],
+            },
+        }
+        raw = json.dumps(payload).encode("utf-8")
+        headers = {"X-Plane-Signature": sign(raw, self.secret).split("=", 1)[1]}
+
+        status, response = handle_assignment_webhook(
+            raw_body=raw,
+            headers=headers,
+            secret=self.secret,
+            store=self.store,
+        )
+
+        self.assertEqual(status, 202)
+        self.assertTrue(response["accepted"])
+
     def test_ignores_issue_event_without_assignee(self) -> None:
         payload = {
             "event": "issue",
@@ -134,6 +159,31 @@ class AssignmentWebhookTests(unittest.TestCase):
         self.assertEqual(status, 202)
         self.assertFalse(response["accepted"])
         self.assertTrue(response["ignored"])
+
+    def test_ignores_non_assignment_issue_update(self) -> None:
+        payload = {
+            "event": "issue",
+            "action": "update",
+            "webhook_id": "wh_1",
+            "workspace_id": "ws_1",
+            "data": {
+                "id": "issue_3",
+                "project_id": "proj_1",
+                "assignees": [{"id": "agent_openclaw_coder"}],
+            },
+            "activity": {"field": "state", "old_value": "backlog", "new_value": "started"},
+        }
+        raw = json.dumps(payload).encode("utf-8")
+        headers = {"X-Plane-Signature": sign(raw, self.secret).split("=", 1)[1]}
+        status, response = handle_assignment_webhook(
+            raw_body=raw,
+            headers=headers,
+            secret=self.secret,
+            store=self.store,
+        )
+        self.assertEqual(status, 202)
+        self.assertFalse(response["accepted"])
+        self.assertEqual(response["reason"], "not_an_assignment_change")
 
 
 if __name__ == "__main__":

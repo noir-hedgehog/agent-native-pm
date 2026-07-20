@@ -87,6 +87,8 @@ class ApprovalService:
         for approval in self.store.list_pending_transition_approvals():
             created = self._parse_iso(approval.created_at)
             age = now - created
+            session = self.store.get_task_session(approval.task_session_id)
+            task_id = session.task_id if session else "unknown"
 
             if age >= timedelta(hours=block_after_hours):
                 self.store.update_transition_approval(
@@ -97,8 +99,32 @@ class ApprovalService:
                     resolved_at=self._to_iso(now),
                 )
                 self.store.update_task_session_status(approval.task_session_id, "blocked")
+                self.store.add_audit_event(
+                    AuditEvent(
+                        event_type="transition_approval.timed_out",
+                        task_id=task_id,
+                        task_session_id=approval.task_session_id,
+                        payload={"approval_id": approval.approval_id, "block_after_hours": block_after_hours},
+                        occurred_at=self._to_iso(now),
+                    )
+                )
                 blocked_sessions.append(approval.task_session_id)
             elif age >= timedelta(hours=reminder_after_hours):
-                reminders.append(approval.approval_id)
+                already_reminded = any(
+                    event.event_type == "transition_approval.reminder"
+                    and event.payload.get("approval_id") == approval.approval_id
+                    for event in self.store.list_audit_events_for_task(task_id)
+                )
+                if not already_reminded:
+                    self.store.add_audit_event(
+                        AuditEvent(
+                            event_type="transition_approval.reminder",
+                            task_id=task_id,
+                            task_session_id=approval.task_session_id,
+                            payload={"approval_id": approval.approval_id, "reminder_after_hours": reminder_after_hours},
+                            occurred_at=self._to_iso(now),
+                        )
+                    )
+                    reminders.append(approval.approval_id)
 
         return {"reminders": reminders, "blocked_sessions": blocked_sessions}
