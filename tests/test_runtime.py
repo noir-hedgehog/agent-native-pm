@@ -39,6 +39,12 @@ class RuntimeFactoryTests(unittest.TestCase):
 
         self.assertIsInstance(build_agent_adapter_from_env(), HermesAdapter)
 
+    def test_mesh_settings_override_legacy_agentpm_settings(self):
+        os.environ["AGENTPM_AGENT_PROVIDER"] = "hermes"
+        os.environ["MESH_AGENT_PROVIDER"] = "dev"
+
+        self.assertIsInstance(build_agent_adapter_from_env(), DevAgentAdapter)
+
 
 if __name__ == "__main__":
     unittest.main()

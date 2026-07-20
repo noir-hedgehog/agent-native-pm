@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Tuple
 from urllib.parse import urlparse
 
+from .env import mesh_env, mesh_env_bool
 from .errors import InvalidPayloadError, InvalidSignatureError
 from .policy import policy_input_from_payload
 from .reporting import ReportingService
@@ -118,7 +119,7 @@ class AssignmentWebhookHandler(BaseHTTPRequestHandler):
         raw_body = self._read_body()
         try:
             orchestrator = self.orchestrator or build_assignment_orchestrator_from_env(self.store)
-            if _env_bool("AGENTPM_ASYNC_WEBHOOK", False):
+            if mesh_env_bool("ASYNC_WEBHOOK", False):
                 payload, plane_payload, event = orchestrator.accept_assignment(raw_body=raw_body, headers=self.headers)
                 if plane_payload is not None and event is not None:
                     threading.Thread(
@@ -150,10 +151,10 @@ class AssignmentWebhookHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "status": "ok",
-                    "service": "agentpm",
+                    "service": "mesh",
                     "version": _version(),
-                    "store": os.environ.get("AGENTPM_STORE", "memory").lower(),
-                    "agent_provider": os.environ.get("AGENTPM_AGENT_PROVIDER", "dev").lower(),
+                    "store": str(mesh_env("STORE", "memory")).lower(),
+                    "agent_provider": str(mesh_env("AGENT_PROVIDER", "dev")).lower(),
                 },
             )
             return
@@ -232,7 +233,7 @@ def run_server() -> None:
 
 
 def _allowed_origin(origin: str | None) -> str | None:
-    configured = os.environ.get("AGENTPM_ALLOWED_ORIGINS", "http://127.0.0.1,http://localhost")
+    configured = str(mesh_env("ALLOWED_ORIGINS", "http://127.0.0.1,http://localhost"))
     allowed = {item.strip().rstrip("/") for item in configured.split(",") if item.strip()}
     if "*" in allowed:
         return "*"
@@ -241,7 +242,7 @@ def _allowed_origin(origin: str | None) -> str | None:
 
 
 def _version() -> str:
-    configured = os.environ.get("AGENTPM_VERSION")
+    configured = mesh_env("VERSION")
     if configured:
         return configured
     version_file = Path(__file__).resolve().parents[2] / "VERSION"
@@ -253,18 +254,11 @@ def _version() -> str:
 
 def _log(event: str, **fields) -> None:
     payload = {"event": event, **fields}
-    if os.environ.get("AGENTPM_LOG_FORMAT", "text").lower() == "json":
+    if str(mesh_env("LOG_FORMAT", "text")).lower() == "json":
         print(json.dumps(payload, ensure_ascii=False, default=str), flush=True)
     else:
         message = " ".join(f"{key}={value}" for key, value in payload.items())
         print(message, file=sys.stdout, flush=True)
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _process_assignment_in_background(orchestrator, receipt: dict, payload: dict, event: dict) -> None:
@@ -306,7 +300,7 @@ def _resume_approval_in_background(orchestrator, approval_id: str) -> None:
 
 
 def _admin_authorized(provided: str | None) -> bool:
-    expected = os.environ.get("AGENTPM_ADMIN_TOKEN")
+    expected = mesh_env("ADMIN_TOKEN")
     if not expected:
         return True
     return bool(provided) and hmac.compare_digest(provided, expected)

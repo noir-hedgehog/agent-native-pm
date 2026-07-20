@@ -7,25 +7,26 @@ from .adapters.dev import DevAgentAdapter, DevPlaneWritebackAdapter
 from .adapters.hermes import HermesAdapter, HermesAdapterConfig
 from .adapters.openclaw import HttpOpenClawTransport, OpenClawAdapter, OpenClawAdapterConfig
 from .adapters.plane import HttpPlaneTransport, PlaneWritebackAdapter
+from .env import mesh_env
 from .orchestrator import AssignmentOrchestrator
 from .persistence.sqlite_store import SqliteStore
 from .store import InMemoryStore, Store
 
 
 def build_store_from_env() -> Store:
-    backend = os.environ.get("AGENTPM_STORE", "memory").lower()
+    backend = str(mesh_env("STORE", "memory")).lower()
     if backend == "sqlite":
-        db_path = os.environ.get("AGENTPM_SQLITE_PATH", ".agentpm/agentpm.sqlite3")
+        db_path = str(mesh_env("SQLITE_PATH", ".agentpm/agentpm.sqlite3"))
         store = SqliteStore(db_path)
         store.run_migrations()
         return store
     if backend in {"memory", "inmemory"}:
         return InMemoryStore()
-    raise ValueError(f"unsupported AGENTPM_STORE={backend}")
+    raise ValueError(f"unsupported MESH_STORE={backend}")
 
 
 def build_agent_adapter_from_env() -> Any:
-    provider = os.environ.get("AGENTPM_AGENT_PROVIDER", "dev").lower()
+    provider = str(mesh_env("AGENT_PROVIDER", "dev")).lower()
     if provider == "dev":
         return DevAgentAdapter()
     if provider == "openclaw":
@@ -48,7 +49,7 @@ def build_agent_adapter_from_env() -> Any:
             ),
             HermesAdapterConfig.from_env(),
         )
-    raise ValueError(f"unsupported AGENTPM_AGENT_PROVIDER={provider}")
+    raise ValueError(f"unsupported MESH_AGENT_PROVIDER={provider}")
 
 
 def build_plane_adapter_from_env() -> Any:

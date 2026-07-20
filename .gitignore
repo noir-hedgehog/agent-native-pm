@@ -10,5 +10,4 @@ __pycache__/
 dist/
 backups/
 
-# Local checkout of the upstream Plane service.
-plane/
+# Plane CE is tracked as the Mesh Console subtree.
