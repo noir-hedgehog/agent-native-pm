@@ -313,6 +313,7 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["application/json"]
+MESH_RUNNER_AUTOSTART = os.environ.get("MESH_RUNNER_AUTOSTART", "1") == "1"
 
 
 CELERY_IMPORTS = (
@@ -330,6 +331,8 @@ CELERY_IMPORTS = (
     # issue version tasks
     "plane.bgtasks.issue_version_sync",
     "plane.bgtasks.issue_description_version_sync",
+    "plane.bgtasks.mesh_runner",
+    "plane.bgtasks.mesh_indexer",
 )
 
 FILE_SIZE_LIMIT = int(os.environ.get("FILE_SIZE_LIMIT", 5242880))

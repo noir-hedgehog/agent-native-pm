@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILL_SRC="$ROOT_DIR/skills/agentpm-plane-workflow"
+SKILL_SRC="$ROOT_DIR/skills/mesh-plane-workflow"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-CODEX_DEST="$CODEX_HOME/skills/agentpm-plane-workflow"
+CODEX_DEST="$CODEX_HOME/skills/mesh-plane-workflow"
 DRY_RUN=0
 INSTALL_CODEX=1
 INSTALL_OPENCLAW=1
@@ -13,7 +13,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/install_plane_agent_skill.sh [--dry-run] [--codex-only|--openclaw-only]
 
-Installs the AgentPM Plane workflow skill for Codex and OpenClaw.
+Installs the Mesh Plane workflow skill for Codex and OpenClaw.
 EOF
 }
 
@@ -51,7 +51,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
     echo "rm -rf '$CODEX_DEST' && mkdir -p '$(dirname "$CODEX_DEST")' && cp -R '$SKILL_SRC' '$CODEX_DEST'"
   fi
   if [ "$INSTALL_OPENCLAW" -eq 1 ]; then
-    echo "openclaw skills install '$SKILL_SRC' --as agentpm-plane-workflow --global --force"
+    echo "openclaw skills install '$SKILL_SRC' --as mesh-plane-workflow --global --force"
   fi
   exit 0
 fi
@@ -68,6 +68,6 @@ if [ "$INSTALL_OPENCLAW" -eq 1 ]; then
     echo "openclaw CLI not found; skipped OpenClaw skill install" >&2
     exit 1
   fi
-  openclaw skills install "$SKILL_SRC" --as agentpm-plane-workflow --global --force
-  echo "Installed OpenClaw skill: agentpm-plane-workflow"
+  openclaw skills install "$SKILL_SRC" --as mesh-plane-workflow --global --force
+  echo "Installed OpenClaw skill: mesh-plane-workflow"
 fi

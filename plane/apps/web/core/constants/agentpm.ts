@@ -4,7 +4,9 @@
  * See the LICENSE file for details.
  */
 
-export const AGENTPM_GITHUB_URL = "https://github.com/noir-hedgehog/agent-native-pm";
-export const AGENTPM_DOCS_URL = `${AGENTPM_GITHUB_URL}/tree/main/docs`;
-export const AGENTPM_ROADMAP_URL = `${AGENTPM_GITHUB_URL}/issues`;
-export const AGENTPM_NEW_ISSUE_URL = `${AGENTPM_GITHUB_URL}/issues/new`;
+export {
+  MESH_DOCS_URL as AGENTPM_DOCS_URL,
+  MESH_GITHUB_URL as AGENTPM_GITHUB_URL,
+  MESH_NEW_ISSUE_URL as AGENTPM_NEW_ISSUE_URL,
+  MESH_ROADMAP_URL as AGENTPM_ROADMAP_URL,
+} from "./mesh";

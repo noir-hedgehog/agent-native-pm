@@ -14,6 +14,7 @@ from .user import urlpatterns as user_patterns
 from .work_item import urlpatterns as work_item_patterns
 from .invite import urlpatterns as invite_patterns
 from .mcp import urlpatterns as mcp_patterns
+from .mesh import urlpatterns as mesh_patterns
 from .sticky import urlpatterns as sticky_patterns
 
 urlpatterns = [
@@ -29,5 +30,6 @@ urlpatterns = [
     *work_item_patterns,
     *invite_patterns,
     *mcp_patterns,
+    *mesh_patterns,
     *sticky_patterns,
 ]

@@ -28,6 +28,10 @@ faker==25.0.0
 django-filter==24.2
 # json model
 jsonmodels==2.7.0
+# vector search
+pgvector==0.5.0
+# Mesh source formats
+PyYAML==6.0.3
 # storage
 django-storages==1.14.2
 # user management

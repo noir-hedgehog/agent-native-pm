@@ -1,4 +1,4 @@
-name: AgentPM CI
+name: Mesh CI
 
 on:
   push:
@@ -14,8 +14,36 @@ jobs:
         with:
           python-version: "3.12"
       - run: PYTHONPATH=src python -m unittest discover -s tests -v
-      - run: python -m py_compile src/agentpm/*.py src/agentpm/adapters/*.py src/agentpm/persistence/*.py scripts/*.py
+      - run: python -m py_compile src/mesh/*.py src/agentpm/*.py src/agentpm/adapters/*.py src/agentpm/persistence/*.py scripts/*.py
       - run: bash -n scripts/*.sh
-      - run: docker build -f Dockerfile.agentpm -t agentpm:test .
-      - run: docker run -d --name agentpm-ci -p 127.0.0.1:8080:8080 -e HOST=0.0.0.0 -e AGENTPM_AGENT_PROVIDER=dev agentpm:test
+      - run: docker build -f Dockerfile.mesh -t mesh:test .
+      - run: docker run -d --name mesh-ci -p 127.0.0.1:8080:8080 -e HOST=0.0.0.0 -e MESH_AGENT_PROVIDER=dev mesh:test
       - run: for i in {1..30}; do curl -fsS http://127.0.0.1:8080/health && exit 0; sleep 1; done; exit 1
+
+  console-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp plane/.env.example plane/.env && cp plane/apps/api/.env.example plane/apps/api/.env
+      - run: docker compose -f plane/docker-compose.yml build api
+      - run: docker compose -f plane/docker-compose.yml up -d plane-db plane-redis plane-mq
+      - run: docker compose -f plane/docker-compose.yml run --rm api sh -lc "pip install -r requirements/test.txt && python manage.py check && python manage.py migrate --noinput && pytest plane/tests/unit/mesh plane/tests/contract/api/test_mcp.py -q"
+
+  console-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.18.0"
+          cache: pnpm
+          cache-dependency-path: plane/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: plane
+      - run: pnpm check:types
+        working-directory: plane
+      - run: pnpm --filter web build
+        working-directory: plane

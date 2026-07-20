@@ -55,6 +55,9 @@ services:
     env_file:
       - ./apps/api/.env
     environment:
+      MESH_VERSION: ${MESH_VERSION:-0.1.0}
+      MESH_INTERNAL_URL: ${MESH_INTERNAL_URL:-http://api:8000}
+      MESH_ADMIN_TOKEN: ${MESH_ADMIN_TOKEN:-}
       AGENTPM_INTERNAL_URL: ${AGENTPM_INTERNAL_URL:-http://agentpm:8080}
       AGENTPM_ADMIN_TOKEN: ${AGENTPM_ADMIN_TOKEN:-}
     depends_on:
@@ -88,6 +91,32 @@ services:
       - api
       - plane-db
       - plane-redis
+
+  mesh-runner:
+    container_name: mesh-runner
+    image: plane-api
+    restart: always
+    command: celery -A plane worker -l info -Q mesh-runner -n mesh-runner@%h
+    env_file:
+      - ./apps/api/.env
+    depends_on:
+      - api
+      - plane-db
+      - plane-redis
+      - plane-mq
+
+  mesh-indexer:
+    container_name: mesh-indexer
+    image: plane-api
+    restart: always
+    command: celery -A plane worker -l info -Q mesh-indexer -n mesh-indexer@%h
+    env_file:
+      - ./apps/api/.env
+    depends_on:
+      - api
+      - plane-db
+      - plane-redis
+      - plane-mq
 
   migrator:
     container_name: plane-migrator
@@ -123,7 +152,7 @@ services:
 
   plane-db:
     container_name: plane-db
-    image: postgres:15.7-alpine
+    image: pgvector/pgvector:pg15
     restart: always
     command: postgres -c 'max_connections=1000'
     volumes:

@@ -3,7 +3,14 @@
 # See the LICENSE file for details.
 
 from .analytic import AnalyticView
-from .agent import AgentRegistrationApplication
+from .agent import (
+    AgentExecutionProfile,
+    AgentProfile,
+    AgentRegistrationApplication,
+    MeshFunctionalRole,
+    MeshProjectMemberRole,
+    MeshProjectPolicy,
+)
 from .api import APIActivityLog, APIToken
 from .asset import FileAsset
 from .base import BaseModel
@@ -82,6 +89,18 @@ from .favorite import UserFavorite
 
 from .issue_type import IssueType
 
+from .knowledge import MeshKnowledgeChunk, MeshKnowledgeDocument
+
+from .loop import (
+    MeshApproval,
+    MeshAuditEvent,
+    MeshHandoff,
+    MeshLoopDefinition,
+    MeshLoopRun,
+    MeshRunAttempt,
+    MeshStageRun,
+)
+
 from .recent_visit import UserRecentVisit
 
 from .label import Label
@@ -89,5 +108,7 @@ from .label import Label
 from .device import Device, DeviceSession
 
 from .sticky import Sticky
+
+from .skill import MeshSkill, MeshSkillVersion
 
 from .description import Description, DescriptionVersion

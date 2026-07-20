@@ -29,6 +29,8 @@ from plane.app.serializers import (
 from plane.app.views.base import BaseAPIView
 from plane.db.models import (
     APIToken,
+    AgentExecutionProfile,
+    AgentProfile,
     AgentRegistrationApplication,
     DraftIssue,
     Project,
@@ -314,6 +316,12 @@ def _serialize_agent_application(application):
         "email": application.email,
         "requested_role": application.requested_role,
         "reason": application.reason,
+        "agent_type": application.agent_type,
+        "runtime_provider": application.runtime_provider,
+        "endpoint_url": application.endpoint_url,
+        "agent_card": application.agent_card,
+        "capability_claims": application.capability_claims,
+        "boundaries": application.boundaries,
         "status": application.status,
         "source": application.source,
         "project_id": str(application.project_id) if application.project_id else None,
@@ -360,6 +368,41 @@ def _create_agent_account(*, workspace, actor, payload):
         workspace_member.is_active = True
         workspace_member.save()
 
+        agent_profile, _ = AgentProfile.objects.update_or_create(
+            workspace=workspace,
+            agent_id=agent_id,
+            defaults={
+                "user": user,
+                "owner": actor,
+                "agent_type": str(payload.get("agent_type") or "autonomous"),
+                "runtime_provider": str(payload.get("runtime_provider") or "custom"),
+                "endpoint_url": str(payload.get("endpoint_url") or ""),
+                "status": AgentProfile.Status.ACTIVE,
+                "trust_level": str(payload.get("trust_level") or AgentProfile.TrustLevel.VERIFIED),
+                "agent_card": dict(payload.get("agent_card") or {}),
+                "capability_claims": list(payload.get("capability_claims") or []),
+                "boundaries": dict(payload.get("boundaries") or {}),
+            },
+        )
+        default_model = str(payload.get("default_model") or "").strip()
+        default_execution = None
+        if default_model:
+            provider = str(payload.get("execution_provider") or agent_profile.runtime_provider).strip()
+            configuration_version = int(payload.get("configuration_version") or 1)
+            default_execution, _ = AgentExecutionProfile.objects.update_or_create(
+                workspace=workspace,
+                agent=agent_profile,
+                provider=provider,
+                model=default_model,
+                configuration_version=configuration_version,
+                defaults={
+                    "secret_reference": str(payload.get("secret_reference") or "").strip(),
+                    "settings": dict(payload.get("execution_settings") or {}),
+                    "is_default": True,
+                    "is_active": True,
+                },
+            )
+
         if project_id:
             project = Project.objects.get(workspace=workspace, id=project_id)
             project_member, _ = ProjectMember.objects.get_or_create(
@@ -375,8 +418,8 @@ def _create_agent_account(*, workspace, actor, payload):
         token = None
         if payload.get("create_token", True):
             token = APIToken.objects.create(
-                label=f"AgentPM {agent_id} MCP",
-                description=f"AgentPM MCP token for {display_name}",
+                label=f"Mesh {agent_id} MCP",
+                description=f"Mesh MCP token for {display_name}",
                 user=user,
                 user_type=1,
                 workspace=workspace,
@@ -386,8 +429,34 @@ def _create_agent_account(*, workspace, actor, payload):
 
     return {
         "workspace_member_id": str(workspace_member.id),
-        "user": {"id": str(user.id), "agent_id": agent_id, "display_name": display_name, "email": email, "is_bot": True},
+        "user": {
+            "id": str(user.id),
+            "agent_id": agent_id,
+            "display_name": display_name,
+            "email": email,
+            "is_bot": True,
+        },
         "workspace_role": workspace_member.role,
+        "agent_profile": {
+            "id": str(agent_profile.id),
+            "agent_type": agent_profile.agent_type,
+            "runtime_provider": agent_profile.runtime_provider,
+            "status": agent_profile.status,
+            "trust_level": agent_profile.trust_level,
+            "capability_claims": agent_profile.capability_claims,
+            "boundaries": agent_profile.boundaries,
+        },
+        "default_execution": (
+            {
+                "id": str(default_execution.id),
+                "provider": default_execution.provider,
+                "model": default_execution.model,
+                "configuration_version": default_execution.configuration_version,
+                "is_active": default_execution.is_active,
+            }
+            if default_execution
+            else None
+        ),
         "token": APITokenSerializer(token).data if token else None,
     }
 
@@ -417,6 +486,12 @@ class AgentRegistrationRequestEndpoint(BaseAPIView):
                 email=str(request.data.get("email") or f"agent-{agent_id}@agentpm.local").strip().lower(),
                 requested_role=requested_role,
                 reason=str(request.data.get("reason") or "").strip(),
+                agent_type=str(request.data.get("agent_type") or "autonomous").strip(),
+                runtime_provider=str(request.data.get("runtime_provider") or "custom").strip(),
+                endpoint_url=str(request.data.get("endpoint_url") or "").strip(),
+                agent_card=dict(request.data.get("agent_card") or {}),
+                capability_claims=list(request.data.get("capability_claims") or []),
+                boundaries=dict(request.data.get("boundaries") or {}),
             )
             return Response(_serialize_agent_application(application), status=status.HTTP_201_CREATED)
         except ValueError as exc:
@@ -426,10 +501,14 @@ class AgentRegistrationRequestEndpoint(BaseAPIView):
 class WorkspaceAgentEndpoint(BaseAPIView):
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
     def get(self, request, slug):
-        members = WorkspaceMember.objects.filter(
-            workspace__slug=slug,
-            member__is_bot=True,
-        ).select_related("member").order_by("member__display_name")
+        members = (
+            WorkspaceMember.objects.filter(
+                workspace__slug=slug,
+                member__is_bot=True,
+            )
+            .select_related("member")
+            .order_by("member__display_name")
+        )
         return Response(
             [
                 {
@@ -515,6 +594,12 @@ class WorkspaceAgentApplicationEndpoint(BaseAPIView):
                     "requested_role": request.data.get("role") or application.requested_role,
                     "project_id": request.data.get("project_id") or application.project_id,
                     "project_role": request.data.get("role") or application.requested_role,
+                    "agent_type": application.agent_type,
+                    "runtime_provider": application.runtime_provider,
+                    "endpoint_url": application.endpoint_url,
+                    "agent_card": application.agent_card,
+                    "capability_claims": application.capability_claims,
+                    "boundaries": application.boundaries,
                 },
             )
         except ValueError as exc:

@@ -7,20 +7,27 @@
 import { observer } from "mobx-react";
 import Link from "next/link";
 import { Controller, useForm } from "react-hook-form";
-import { CircleMinus } from "lucide-react";
+import { Bot, CircleMinus, UserRound } from "lucide-react";
 import { Disclosure } from "@headlessui/react";
 // plane imports
 import { ROLE, EUserPermissions, MEMBER_TRACKER_ELEMENTS } from "@plane/constants";
 import { TOAST_TYPE, setToast } from "@plane/propel/toast";
-import type { EUserProjectRoles, IUser, IWorkspaceMember, TProjectMembership } from "@plane/types";
-import { CustomMenu, CustomSelect } from "@plane/ui";
+import type { EUserProjectRoles, IUser, IUserLite, TProjectMembership } from "@plane/types";
+import { Checkbox, CustomMenu, CustomSelect } from "@plane/ui";
 import { getFileURL } from "@plane/utils";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
+import projectMemberService, {
+  type TMeshFunctionalRole,
+} from "@/services/project/project-member.service";
 
 export interface RowData extends Pick<TProjectMembership, "original_role"> {
-  member: IWorkspaceMember;
+  member: IUserLite;
+  id: string | null;
+  is_agent?: boolean;
+  functional_roles?: { id: string; key: string; name: string }[];
+  agent_profile?: TProjectMembership["agent_profile"];
 }
 
 type NameProps = {
@@ -112,17 +119,19 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
   const roleLabel = ROLE[rowData.original_role ?? EUserPermissions.GUEST];
   const isCurrentUser = currentUser?.id === rowData.member.id;
   const isRowDataWorkspaceAdmin = [EUserPermissions.ADMIN].includes(
-    Number(getWorkspaceMemberDetails(rowData.member.id)?.role) ?? EUserPermissions.GUEST
+    Number(getWorkspaceMemberDetails(rowData.member.id)?.role) ?? EUserPermissions.GUEST,
   );
   const isCurrentUserWorkspaceAdmin = currentUser
     ? [EUserPermissions.ADMIN].includes(
-        Number(getWorkspaceMemberDetails(currentUser.id)?.role) ?? EUserPermissions.GUEST
+        Number(getWorkspaceMemberDetails(currentUser.id)?.role) ?? EUserPermissions.GUEST,
       )
     : false;
   const currentProjectRole = getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug, projectId);
 
   const isCurrentUserProjectAdmin = currentProjectRole
-    ? ![EUserPermissions.MEMBER, EUserPermissions.GUEST].includes(Number(currentProjectRole) ?? EUserPermissions.GUEST)
+    ? ![EUserPermissions.MEMBER, EUserPermissions.GUEST].includes(
+        Number(currentProjectRole) ?? EUserPermissions.GUEST,
+      )
     : false;
 
   // logic
@@ -132,13 +141,15 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
     (isCurrentUserWorkspaceAdmin && isCurrentUser) ||
     (isCurrentUserProjectAdmin && !isRowDataWorkspaceAdmin && !isCurrentUser);
   const checkCurrentOptionWorkspaceRole = (value: string) => {
-    const currentMemberWorkspaceRole = getWorkspaceMemberDetails(value)?.role as EUserPermissions | undefined;
+    const currentMemberWorkspaceRole = getWorkspaceMemberDetails(value)?.role as
+      | EUserPermissions
+      | undefined;
     if (!value || !currentMemberWorkspaceRole) return ROLE;
 
     const isGuest = [EUserPermissions.GUEST].includes(currentMemberWorkspaceRole);
 
     return Object.fromEntries(
-      Object.entries(ROLE).filter(([key]) => !isGuest || parseInt(key) === EUserPermissions.GUEST)
+      Object.entries(ROLE).filter(([key]) => !isGuest || parseInt(key) === EUserPermissions.GUEST),
     );
   };
 
@@ -154,19 +165,24 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
               value={rowData.original_role}
               onChange={async (value: EUserProjectRoles) => {
                 if (!workspaceSlug) return;
-                await updateMemberRole(workspaceSlug.toString(), projectId.toString(), rowData.member.id, value).catch(
-                  (err) => {
-                    console.log(err, "err");
-                    const error = err.error;
-                    const errorString = Array.isArray(error) ? error[0] : error;
+                await updateMemberRole(
+                  workspaceSlug.toString(),
+                  projectId.toString(),
+                  rowData.member.id,
+                  value,
+                ).catch((err) => {
+                  console.log(err, "err");
+                  const error = err.error;
+                  const errorString = Array.isArray(error) ? error[0] : error;
 
-                    setToast({
-                      type: TOAST_TYPE.ERROR,
-                      title: "You can’t change this role yet.",
-                      message: errorString ?? "An error occurred while updating member role. Please try again.",
-                    });
-                  }
-                );
+                  setToast({
+                    type: TOAST_TYPE.ERROR,
+                    title: "You can’t change this role yet.",
+                    message:
+                      errorString ??
+                      "An error occurred while updating member role. Please try again.",
+                  });
+                });
               }}
               label={
                 <div className="flex">
@@ -177,11 +193,13 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
               className="w-32 rounded-md p-0"
               input
             >
-              {Object.entries(checkCurrentOptionWorkspaceRole(rowData.member.id)).map(([key, label]) => (
-                <CustomSelect.Option key={key} value={key}>
-                  {label}
-                </CustomSelect.Option>
-              ))}
+              {Object.entries(checkCurrentOptionWorkspaceRole(rowData.member.id)).map(
+                ([key, label]) => (
+                  <CustomSelect.Option key={key} value={key}>
+                    {label}
+                  </CustomSelect.Option>
+                ),
+              )}
             </CustomSelect>
           )}
         />
@@ -191,5 +209,84 @@ export const AccountTypeColumn = observer(function AccountTypeColumn(props: Acco
         </div>
       )}
     </>
+  );
+});
+
+export function MemberTypeColumn({ rowData }: { rowData: RowData }) {
+  const isAgent = rowData.is_agent ?? rowData.member.is_bot ?? false;
+  return (
+    <div className="flex w-24 items-center gap-1.5 text-secondary">
+      {isAgent ? <Bot className="size-3.5" /> : <UserRound className="size-3.5" />}
+      <span>{isAgent ? "Agent" : "Human"}</span>
+    </div>
+  );
+}
+
+type FunctionalRolesColumnProps = {
+  availableRoles: TMeshFunctionalRole[];
+  isAdmin: boolean;
+  projectId: string;
+  rowData: RowData;
+  workspaceSlug: string;
+};
+
+export const FunctionalRolesColumn = observer(function FunctionalRolesColumn(
+  props: FunctionalRolesColumnProps,
+) {
+  const { availableRoles, isAdmin, projectId, rowData, workspaceSlug } = props;
+  const {
+    project: { fetchProjectMembers },
+  } = useMember();
+  const selectedIds = rowData.functional_roles?.map((role) => role.id) ?? [];
+  const label = rowData.functional_roles?.map((role) => role.name).join(", ") || "No role";
+
+  if (!isAdmin || !rowData.id)
+    return <div className="max-w-52 truncate text-secondary">{label}</div>;
+
+  const toggleRole = async (roleId: string) => {
+    const nextRoleIds = selectedIds.includes(roleId)
+      ? selectedIds.filter((id) => id !== roleId)
+      : [...selectedIds, roleId];
+    try {
+      await projectMemberService.updateMeshMemberRoles(
+        workspaceSlug,
+        projectId,
+        rowData.id as string,
+        nextRoleIds,
+      );
+      await fetchProjectMembers(workspaceSlug, projectId, true);
+    } catch (error) {
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Functional roles were not updated.",
+        message: (error as { error?: string })?.error ?? "Please try again.",
+      });
+    }
+  };
+
+  return (
+    <CustomMenu
+      closeOnSelect={false}
+      placement="bottom-start"
+      customButton={
+        <button className="max-w-52 truncate text-left text-secondary hover:text-primary">
+          {label}
+        </button>
+      }
+    >
+      {availableRoles.map((role) => (
+        <CustomMenu.MenuItem key={role.id} onClick={() => void toggleRole(role.id)}>
+          <div className="flex min-w-44 items-center gap-2">
+            <Checkbox checked={selectedIds.includes(role.id)} readOnly />
+            <div>
+              <div className="text-13 text-primary">{role.name}</div>
+              {role.description && (
+                <div className="max-w-64 text-11 text-secondary">{role.description}</div>
+              )}
+            </div>
+          </div>
+        </CustomMenu.MenuItem>
+      ))}
+    </CustomMenu>
   );
 });

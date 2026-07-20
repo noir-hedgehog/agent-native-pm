@@ -107,6 +107,41 @@ export const PROJECT_SETTINGS: Record<TProjectSettingsTabs, TProjectSettingsItem
     access: [EUserProjectRoles.ADMIN],
     highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/agent-policy/`,
   },
+  mesh_roles_policy: {
+    key: "mesh_roles_policy",
+    i18n_label: "Roles & Policy",
+    href: `/mesh/policy`,
+    access: [EUserProjectRoles.ADMIN],
+    highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/mesh/policy/`,
+  },
+  mesh_skills: {
+    key: "mesh_skills",
+    i18n_label: "Skills",
+    href: `/mesh/skills`,
+    access: [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER, EUserProjectRoles.GUEST],
+    highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/mesh/skills/`,
+  },
+  mesh_knowledge: {
+    key: "mesh_knowledge",
+    i18n_label: "Knowledge",
+    href: `/mesh/knowledge`,
+    access: [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER, EUserProjectRoles.GUEST],
+    highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/mesh/knowledge/`,
+  },
+  mesh_loops: {
+    key: "mesh_loops",
+    i18n_label: "Loops",
+    href: `/mesh/loops`,
+    access: [EUserProjectRoles.ADMIN, EUserProjectRoles.MEMBER, EUserProjectRoles.GUEST],
+    highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/mesh/loops/`,
+  },
+  mesh_approvals: {
+    key: "mesh_approvals",
+    i18n_label: "Approvals",
+    href: `/mesh/approvals`,
+    access: [EUserProjectRoles.ADMIN],
+    highlight: (pathname: string, baseUrl: string) => pathname === `${baseUrl}/mesh/approvals/`,
+  },
 };
 
 export const PROJECT_SETTINGS_FLAT_MAP: TProjectSettingsItem[] = Object.values(PROJECT_SETTINGS);
@@ -125,5 +160,12 @@ export const GROUPED_PROJECT_SETTINGS: Record<PROJECT_SETTINGS_CATEGORY, TProjec
     PROJECT_SETTINGS["labels"],
     PROJECT_SETTINGS["estimates"],
   ],
-  [PROJECT_SETTINGS_CATEGORY.EXECUTION]: [PROJECT_SETTINGS["agent_policy"], PROJECT_SETTINGS["automations"]],
+  [PROJECT_SETTINGS_CATEGORY.EXECUTION]: [
+    PROJECT_SETTINGS["mesh_roles_policy"],
+    PROJECT_SETTINGS["mesh_skills"],
+    PROJECT_SETTINGS["mesh_knowledge"],
+    PROJECT_SETTINGS["mesh_loops"],
+    PROJECT_SETTINGS["mesh_approvals"],
+    PROJECT_SETTINGS["automations"],
+  ],
 };

@@ -6,24 +6,24 @@
 
 import React from "react";
 import { observer } from "mobx-react";
+import { Network } from "lucide-react";
 import Link from "next/link";
 import { AUTH_TRACKER_ELEMENTS } from "@plane/constants";
 import { useTranslation } from "@plane/i18n";
-import { PlaneLockup } from "@plane/propel/icons";
 import { PageHead } from "@/components/core/page-title";
 import { EAuthModes } from "@/helpers/authentication.helper";
 import { useInstance } from "@/hooks/store/use-instance";
 
 const authContentMap = {
   [EAuthModes.SIGN_IN]: {
-    pageTitle: "Sign up",
-    text: "auth.common.new_to_plane",
+    pageTitle: "Sign in",
+    text: "New to Mesh?",
     linkText: "Sign up",
     linkHref: "/sign-up",
   },
   [EAuthModes.SIGN_UP]: {
-    pageTitle: "Sign in",
-    text: "auth.common.already_have_an_account",
+    pageTitle: "Sign up",
+    text: "Already have an account?",
     linkText: "Sign in",
     linkHref: "/sign-in",
   },
@@ -46,7 +46,7 @@ export const AuthHeader = observer(function AuthHeader({ type }: AuthHeaderProps
       additionalAction={
         enableSignUpConfig && (
           <div className="flex flex-col items-end text-center text-13 font-medium text-tertiary sm:flex-row sm:items-center sm:gap-2">
-            <span className="text-body-sm-regular text-tertiary">{t(authContentMap[type].text)}</span>
+            <span className="text-body-sm-regular text-tertiary">{authContentMap[type].text}</span>
             <Link
               data-ph-element={AUTH_TRACKER_ELEMENTS.NAVIGATE_TO_SIGN_UP}
               href={authContentMap[type].linkHref}
@@ -70,10 +70,11 @@ export function AuthHeaderBase(props: TAuthHeaderBase) {
   const { pageTitle, additionalAction } = props;
   return (
     <>
-      <PageHead title={pageTitle + " - Plane"} />
+      <PageHead title={pageTitle + " - Mesh"} />
       <div className="sticky top-0 flex w-full flex-shrink-0 items-center justify-between gap-6">
-        <Link href="/">
-          <PlaneLockup height={20} width={95} className="text-primary" />
+        <Link href="/" className="flex items-center gap-2 text-primary">
+          <Network className="size-5" aria-hidden="true" />
+          <span className="text-18 font-semibold">Mesh</span>
         </Link>
         {additionalAction}
       </div>

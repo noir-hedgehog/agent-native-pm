@@ -5,7 +5,7 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { Bot, Users, Zap } from "lucide-react";
+import { Bot, BookOpenCheck, Database, Network, ShieldCheck, Users, Zap } from "lucide-react";
 // plane imports
 import type { ISvgIcons } from "@plane/propel/icons";
 import {
@@ -22,7 +22,10 @@ import type { TProjectSettingsTabs } from "@plane/types";
 // components
 import { SettingIcon } from "@/components/icons/attachment";
 
-export const PROJECT_SETTINGS_ICONS: Record<TProjectSettingsTabs, LucideIcon | React.FC<ISvgIcons>> = {
+export const PROJECT_SETTINGS_ICONS: Record<
+  TProjectSettingsTabs,
+  LucideIcon | React.FC<ISvgIcons>
+> = {
   general: SettingIcon,
   members: Users,
   features_cycles: CycleIcon,
@@ -34,5 +37,10 @@ export const PROJECT_SETTINGS_ICONS: Record<TProjectSettingsTabs, LucideIcon | R
   labels: LabelPropertyIcon,
   estimates: EstimatePropertyIcon,
   agent_policy: Bot,
+  mesh_roles_policy: ShieldCheck,
+  mesh_skills: BookOpenCheck,
+  mesh_knowledge: Database,
+  mesh_loops: Network,
+  mesh_approvals: ShieldCheck,
   automations: Zap,
 };

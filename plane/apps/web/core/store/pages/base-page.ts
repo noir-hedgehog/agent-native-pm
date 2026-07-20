@@ -88,6 +88,8 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
   logo_props: TLogoProps | undefined;
   description_json: object | undefined;
   description_html: string | undefined;
+  source_format: "rich_text" | "markdown" | "yaml";
+  source_text: string;
   color: string | undefined;
   label_ids: string[] | undefined;
   owned_by: string | undefined;
@@ -116,7 +118,7 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
   constructor(
     private store: RootStore,
     page: TPage,
-    services: TBasePageServices
+    services: TBasePageServices,
   ) {
     super(store, page, services);
 
@@ -125,6 +127,8 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
     this.logo_props = page?.logo_props || undefined;
     this.description_json = page?.description_json || undefined;
     this.description_html = page?.description_html || undefined;
+    this.source_format = page?.source_format || "rich_text";
+    this.source_text = page?.source_text || "";
     this.color = page?.color || undefined;
     this.label_ids = page?.label_ids || undefined;
     this.owned_by = page?.owned_by || undefined;
@@ -150,6 +154,8 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
       logo_props: observable.ref,
       description_json: observable.ref,
       description_html: observable.ref,
+      source_format: observable.ref,
+      source_text: observable.ref,
       color: observable.ref,
       label_ids: observable,
       owned_by: observable.ref,
@@ -205,15 +211,15 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
           .catch(() =>
             runInAction(() => {
               this.name = this.oldName;
-            })
+            }),
           )
           .finally(() =>
             runInAction(() => {
               this.isSubmitting = "submitted";
-            })
+            }),
           );
       },
-      { delay: 2000 }
+      { delay: 2000 },
     );
     this.disposers.push(titleDisposer);
   }
@@ -225,6 +231,8 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
       name: this.name,
       description_json: this.description_json,
       description_html: this.description_html,
+      source_format: this.source_format,
+      source_text: this.source_text,
       color: this.color,
       label_ids: this.label_ids,
       owned_by: this.owned_by,
@@ -307,8 +315,12 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
    */
   updateDescription = async (document: TDocumentPayload) => {
     const currentDescription = this.description_html;
+    const currentSourceFormat = this.source_format;
+    const currentSourceText = this.source_text;
     runInAction(() => {
       this.description_html = document.description_html;
+      if (document.source_format) this.source_format = document.source_format;
+      if (document.source_text !== undefined) this.source_text = document.source_text;
     });
 
     try {
@@ -316,6 +328,8 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
     } catch (error) {
       runInAction(() => {
         this.description_html = currentDescription;
+        this.source_format = currentSourceFormat;
+        this.source_text = currentSourceText;
       });
       throw error;
     }
@@ -404,7 +418,13 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
   /**
    * @description archive the page
    */
-  archive = async ({ shouldSync = true, archived_at }: { shouldSync?: boolean; archived_at?: string | null }) => {
+  archive = async ({
+    shouldSync = true,
+    archived_at,
+  }: {
+    shouldSync?: boolean;
+    archived_at?: string | null;
+  }) => {
     if (!this.id) return undefined;
 
     try {
@@ -412,7 +432,8 @@ export class BasePage extends ExtendedBasePage implements TBasePage {
         this.archived_at = archived_at ?? new Date().toISOString();
       });
 
-      if (this.rootStore.favorite.entityMap[this.id]) this.rootStore.favorite.removeFavoriteFromStore(this.id);
+      if (this.rootStore.favorite.entityMap[this.id])
+        this.rootStore.favorite.removeFavoriteFromStore(this.id);
 
       if (shouldSync) {
         const response = await this.services.archive();

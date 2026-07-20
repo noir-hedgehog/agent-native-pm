@@ -30,6 +30,21 @@ from .project.agent_policy import (
     AgentPolicyHistoryEndpoint,
     AgentPolicyRuntimeEndpoint,
 )
+from .project.mesh import (
+    MeshEligibleAgentsEndpoint,
+    MeshKnowledgeSearchEndpoint,
+    MeshLoopPublishEndpoint,
+    MeshLoopStartEndpoint,
+    MeshApprovalsEndpoint,
+    MeshLoopsEndpoint,
+    MeshMemberRolesEndpoint,
+    MeshProjectPolicyEndpoint,
+    MeshProjectRolesEndpoint,
+    MeshRunsEndpoint,
+    MeshSkillPublishEndpoint,
+    MeshSkillsEndpoint,
+    MeshStageAssignmentEndpoint,
+)
 
 from .user.base import (
     UserEndpoint,

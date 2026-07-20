@@ -16,6 +16,8 @@ export type TPage = {
   created_by: string | undefined;
   description_json: object | undefined;
   description_html: string | undefined;
+  source_format: "rich_text" | "markdown" | "yaml";
+  source_text: string;
   id: string | undefined;
   is_favorite: boolean;
   is_locked: boolean;
@@ -60,6 +62,8 @@ export type TPageVersion = {
   description_binary?: string | null;
   description_html?: string | null;
   description_json?: object;
+  source_format: "rich_text" | "markdown" | "yaml";
+  source_text?: string;
   id: string;
   last_saved_at: string;
   owned_by: string;
@@ -73,6 +77,8 @@ export type TDocumentPayload = {
   description_binary: string;
   description_html: string;
   description_json: object;
+  source_format?: "rich_text" | "markdown" | "yaml";
+  source_text?: string;
 };
 
 export type TWebhookConnectionQueryParams = {

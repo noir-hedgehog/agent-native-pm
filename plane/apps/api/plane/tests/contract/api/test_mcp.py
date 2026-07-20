@@ -9,6 +9,8 @@ import pytest
 from plane.db.models import (
     APIToken,
     AgentRegistrationApplication,
+    AgentExecutionProfile,
+    AgentProfile,
     Cycle,
     CycleIssue,
     Issue,
@@ -20,6 +22,12 @@ from plane.db.models import (
     Label,
     Module,
     ModuleIssue,
+    MeshFunctionalRole,
+    MeshHandoff,
+    MeshLoopDefinition,
+    MeshLoopRun,
+    MeshProjectMemberRole,
+    MeshStageRun,
     Project,
     ProjectMember,
     State,
@@ -57,9 +65,15 @@ def mcp_raw_call(client, slug, name, arguments=None):
 @pytest.fixture
 def native_mcp_data(api_client):
     human = User.objects.create(email="admin@example.com", username="admin", display_name="Admin")
-    hekate = User.objects.create(email="agent-hekate@agentpm.local", username="agent-hekate", display_name="Hekate", is_bot=True)
-    iris = User.objects.create(email="agent-iris@agentpm.local", username="agent-iris", display_name="Iris", is_bot=True)
-    taichi = User.objects.create(email="agent-taichi@agentpm.local", username="agent-taichi", display_name="Taichi", is_bot=True)
+    hekate = User.objects.create(
+        email="agent-hekate@agentpm.local", username="agent-hekate", display_name="Hekate", is_bot=True
+    )
+    iris = User.objects.create(
+        email="agent-iris@agentpm.local", username="agent-iris", display_name="Iris", is_bot=True
+    )
+    taichi = User.objects.create(
+        email="agent-taichi@agentpm.local", username="agent-taichi", display_name="Taichi", is_bot=True
+    )
     workspace = Workspace.objects.create(name="AgentPM", slug="agentpm", owner=human)
     WorkspaceMember.objects.create(workspace=workspace, member=human, role=20)
     WorkspaceMember.objects.create(workspace=workspace, member=hekate, role=20)
@@ -69,7 +83,9 @@ def native_mcp_data(api_client):
     ProjectMember.objects.create(workspace=workspace, project=project, member=hekate, role=20)
     ProjectMember.objects.create(workspace=workspace, project=project, member=iris, role=15)
     ProjectMember.objects.create(workspace=workspace, project=project, member=taichi, role=5)
-    todo = State.objects.create(workspace=workspace, project=project, name="Todo", color="#000", group="unstarted", default=True)
+    todo = State.objects.create(
+        workspace=workspace, project=project, name="Todo", color="#000", group="unstarted", default=True
+    )
     done = State.objects.create(workspace=workspace, project=project, name="Done", color="#0f0", group="completed")
     label = Label.objects.create(workspace=workspace, project=project, name="MCP", color="#f00")
     issue = Issue.objects.create(workspace=workspace, project=project, name="Native MCP task", state=todo)
@@ -228,7 +244,9 @@ def test_native_mcp_guest_can_read_context_but_not_write(native_mcp_data):
     activity = mcp_call(client, "agentpm", "plane_list_work_item_activity", {"work_item_id": issue_id})
     links = mcp_call(client, "agentpm", "plane_list_work_item_links", {"work_item_id": issue_id})
     relations = mcp_call(client, "agentpm", "plane_list_work_item_relations", {"work_item_id": issue_id})
-    update_denied = mcp_call(client, "agentpm", "plane_update_work_item", {"work_item_id": issue_id, "priority": "high"})
+    update_denied = mcp_call(
+        client, "agentpm", "plane_update_work_item", {"work_item_id": issue_id, "priority": "high"}
+    )
     link_denied = mcp_call(
         client,
         "agentpm",
@@ -263,7 +281,11 @@ def test_native_mcp_comment_author_is_authenticated_bot(native_mcp_data):
         client,
         "agentpm",
         "plane_add_comment",
-        {"project_id": str(native_mcp_data["project"].id), "work_item_id": str(native_mcp_data["issue"].id), "body": "Looks good"},
+        {
+            "project_id": str(native_mcp_data["project"].id),
+            "work_item_id": str(native_mcp_data["issue"].id),
+            "body": "Looks good",
+        },
     )
 
     comment = IssueComment.objects.get(pk=result["comment"]["id"])
@@ -277,7 +299,11 @@ def test_native_mcp_member_updates_only_assigned_work_items(native_mcp_data):
         client,
         "agentpm",
         "plane_update_status",
-        {"project_id": str(native_mcp_data["project"].id), "work_item_id": str(native_mcp_data["issue"].id), "status": "Done"},
+        {
+            "project_id": str(native_mcp_data["project"].id),
+            "work_item_id": str(native_mcp_data["issue"].id),
+            "status": "Done",
+        },
     )
     assert success["work_item"]["state"]["name"] == "Done"
 
@@ -370,7 +396,11 @@ def test_native_mcp_guest_cannot_create_or_update(native_mcp_data):
         client,
         "agentpm",
         "plane_update_status",
-        {"project_id": str(native_mcp_data["project"].id), "work_item_id": str(native_mcp_data["issue"].id), "status": "Done"},
+        {
+            "project_id": str(native_mcp_data["project"].id),
+            "work_item_id": str(native_mcp_data["issue"].id),
+            "status": "Done",
+        },
     )
 
     assert "insufficient project role" in create_result["error"]["message"]
@@ -429,7 +459,11 @@ def test_native_mcp_admin_can_assign_and_list_accounts_without_secrets(native_mc
         client,
         "agentpm",
         "plane_assign_work_item",
-        {"project_id": str(native_mcp_data["project"].id), "work_item_id": str(native_mcp_data["issue"].id), "target_agent_id": "iris"},
+        {
+            "project_id": str(native_mcp_data["project"].id),
+            "work_item_id": str(native_mcp_data["issue"].id),
+            "target_agent_id": "iris",
+        },
     )
     accounts = mcp_call(client, "agentpm", "plane_list_agent_accounts", {})
     payload = json.dumps(accounts)
@@ -594,6 +628,157 @@ def test_native_mcp_prompts_and_resources_expose_recommended_skill(native_mcp_da
     assert "target_agent_id" in resource["result"]["contents"][0]["text"]
 
 
+def test_mesh_identity_and_eligible_agent_discovery_do_not_leak_secrets(native_mcp_data):
+    workspace = native_mcp_data["workspace"]
+    project = native_mcp_data["project"]
+    iris = native_mcp_data["users"]["iris"]
+    project_member = ProjectMember.objects.get(project=project, member=iris)
+    profile = AgentProfile.objects.create(
+        workspace=workspace,
+        user=iris,
+        agent_id="iris",
+        runtime_provider="openclaw",
+        status=AgentProfile.Status.ACTIVE,
+        capability_claims=["code.write"],
+        boundaries={"denied_capabilities": ["deploy.production"]},
+        agent_card={"available": True},
+    )
+    AgentExecutionProfile.objects.create(
+        workspace=workspace,
+        agent=profile,
+        provider="openclaw",
+        model="gpt-test",
+        secret_reference="env:TOP_SECRET",
+        is_default=True,
+    )
+    role = MeshFunctionalRole.objects.create(
+        workspace=workspace,
+        project=project,
+        key="developer",
+        name="Developer",
+        capabilities=["work.read", "code.write"],
+    )
+    MeshProjectMemberRole.objects.create(
+        workspace=workspace,
+        project=project,
+        project_member=project_member,
+        functional_role=role,
+    )
+
+    client = authenticate(native_mcp_data["client"], native_mcp_data["tokens"]["iris"])
+    me = mcp_call(client, "agentpm", "mesh_get_me", {})
+    eligible = mcp_call(
+        client,
+        "agentpm",
+        "mesh_list_eligible_agents",
+        {"project_id": str(project.id), "role": "developer", "required_capabilities": ["code.write"]},
+    )
+    mesh_api_identity = client.get("/api/v1/workspaces/agentpm/mesh/").json()
+    mesh_api_candidates = client.get(
+        f"/api/v1/workspaces/agentpm/mesh/projects/{project.id}/eligible-agents/",
+        {"role": "developer", "capabilities": "code.write"},
+    ).json()
+    payload = json.dumps(
+        {
+            "me": me,
+            "eligible": eligible,
+            "mesh_api_identity": mesh_api_identity,
+            "mesh_api_candidates": mesh_api_candidates,
+        }
+    )
+
+    assert me["account_type"] == "agent"
+    assert me["agent"]["agent_id"] == "iris"
+    assert me["agent"]["default_execution"]["model"] == "gpt-test"
+    assert eligible["agents"][0]["agent_id"] == "iris"
+    assert mesh_api_identity["identity"]["agent_id"] == "iris"
+    assert mesh_api_candidates["agents"][0]["agent_id"] == "iris"
+    assert "TOP_SECRET" not in payload
+    assert "secret_reference" not in payload
+
+
+def test_mesh_stage_assignment_can_return_plane_work_item_to_unassigned(native_mcp_data):
+    workspace = native_mcp_data["workspace"]
+    project = native_mcp_data["project"]
+    issue = native_mcp_data["issue"]
+    iris = native_mcp_data["users"]["iris"]
+    profile = AgentProfile.objects.create(
+        workspace=workspace,
+        user=iris,
+        agent_id="iris",
+        status=AgentProfile.Status.ACTIVE,
+        agent_card={"available": True},
+    )
+    role = MeshFunctionalRole.objects.create(workspace=workspace, project=project, key="developer", name="Developer")
+    MeshProjectMemberRole.objects.create(
+        workspace=workspace,
+        project=project,
+        project_member=ProjectMember.objects.get(project=project, member=iris),
+        functional_role=role,
+    )
+    definition = MeshLoopDefinition.objects.create(
+        workspace=workspace,
+        project=project,
+        slug="bug-fix",
+        name="Bug fix",
+        version=1,
+        status=MeshLoopDefinition.Status.PUBLISHED,
+        source_yaml="schema_version: 1",
+        graph={"nodes": [{"id": "repair", "type": "stage", "roles": ["developer"]}]},
+        checksum="0" * 64,
+    )
+    run = MeshLoopRun.objects.create(
+        workspace=workspace,
+        project=project,
+        work_item=issue,
+        definition=definition,
+        definition_version=1,
+        status=MeshLoopRun.Status.WAITING_FOR_ASSIGNEE,
+    )
+    MeshStageRun.objects.create(
+        workspace=workspace,
+        project=project,
+        loop_run=run,
+        node_id="triage",
+        functional_role=role,
+        assigned_agent=profile,
+        status=MeshStageRun.Status.SUCCEEDED,
+    )
+    stage = MeshStageRun.objects.create(
+        workspace=workspace,
+        project=project,
+        loop_run=run,
+        node_id="repair",
+        functional_role=role,
+    )
+    client = authenticate(native_mcp_data["client"], native_mcp_data["tokens"]["hekate"])
+
+    assigned = mcp_call(
+        client,
+        "agentpm",
+        "mesh_assign_stage",
+        {"project_id": str(project.id), "stage_run_id": str(stage.id), "target_agent_id": "iris"},
+    )
+    assert assigned["stage"]["assigned_agent_id"] == "iris"
+    handoff = MeshHandoff.objects.get(loop_run=run, to_node_id="repair")
+    assert handoff.target_agent == profile
+    assert handoff.status == MeshHandoff.Status.ASSIGNED
+
+    unassigned = mcp_call(
+        client,
+        "agentpm",
+        "mesh_assign_stage",
+        {"project_id": str(project.id), "stage_run_id": str(stage.id)},
+    )
+    assert unassigned["stage"]["assigned_agent_id"] is None
+    assert unassigned["stage"]["status"] == "waiting_for_assignee"
+    assert not IssueAssignee.objects.filter(issue=issue).exists()
+    run.refresh_from_db()
+    assert run.status == MeshLoopRun.Status.WAITING_FOR_ASSIGNEE
+    handoff.refresh_from_db()
+    assert handoff.status == MeshHandoff.Status.CANCELED
+
+
 def test_native_mcp_work_item_kind_facade(native_mcp_data):
     client = authenticate(native_mcp_data["client"], native_mcp_data["tokens"]["hekate"])
     project_id = str(native_mcp_data["project"].id)
@@ -638,8 +823,15 @@ def test_native_mcp_cycle_and_module_workflow(native_mcp_data):
 
     cycle = mcp_call(client, "agentpm", "plane_create_cycle", {"project_id": project_id, "name": "Sprint 1"})
     module = mcp_call(client, "agentpm", "plane_create_module", {"project_id": project_id, "name": "Core"})
-    cycle_add = mcp_call(client, "agentpm", "plane_add_work_item_to_cycle", {"work_item_id": issue_id, "cycle_id": cycle["cycle"]["id"]})
-    module_add = mcp_call(client, "agentpm", "plane_add_work_item_to_module", {"work_item_id": issue_id, "module_id": module["module"]["id"]})
+    cycle_add = mcp_call(
+        client, "agentpm", "plane_add_work_item_to_cycle", {"work_item_id": issue_id, "cycle_id": cycle["cycle"]["id"]}
+    )
+    module_add = mcp_call(
+        client,
+        "agentpm",
+        "plane_add_work_item_to_module",
+        {"work_item_id": issue_id, "module_id": module["module"]["id"]},
+    )
     cycles = mcp_call(client, "agentpm", "plane_list_cycles", {"project_id": project_id})
     modules = mcp_call(client, "agentpm", "plane_list_modules", {"project_id": project_id})
 
@@ -676,4 +868,36 @@ def test_agent_registration_request_and_human_admin_approval(native_mcp_data):
     assert body["application"]["status"] == "approved"
     assert body["account"]["user"]["agent_id"] == "atlas"
     assert body["account"]["token"]["token"].startswith("plane_api_")
-    assert WorkspaceMember.objects.filter(workspace=native_mcp_data["workspace"], member__username="agent-atlas", role=15).exists()
+    assert WorkspaceMember.objects.filter(
+        workspace=native_mcp_data["workspace"], member__username="agent-atlas", role=15
+    ).exists()
+
+
+def test_human_admin_creates_agent_identity_and_separate_execution_profile(native_mcp_data):
+    client = native_mcp_data["client"]
+    client.force_authenticate(user=User.objects.get(email="admin@example.com"))
+    response = client.post(
+        "/api/workspaces/agentpm/agents/",
+        {
+            "agent_id": "nova",
+            "display_name": "Nova",
+            "agent_type": "remote",
+            "runtime_provider": "openclaw",
+            "default_model": "gpt-test",
+            "secret_reference": "env:NOVA_TOKEN",
+            "capability_claims": ["code.write"],
+            "boundaries": {"denied_capabilities": ["deploy.production"]},
+            "create_token": False,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    profile = AgentProfile.objects.get(workspace=native_mcp_data["workspace"], agent_id="nova")
+    execution = AgentExecutionProfile.objects.get(agent=profile, is_default=True)
+    assert profile.agent_type == "remote"
+    assert profile.capability_claims == ["code.write"]
+    assert execution.model == "gpt-test"
+    assert execution.secret_reference == "env:NOVA_TOKEN"
+    assert "NOVA_TOKEN" not in json.dumps(response.json())
+    assert "secret_reference" not in json.dumps(response.json())

@@ -4,21 +4,33 @@
  * See the LICENSE file for details.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 // plane imports
 import { EUserPermissions, EUserPermissionsLevel } from "@plane/constants";
-import type { IWorkspaceMember, TProjectMembership } from "@plane/types";
+import type { IUserLite, TProjectMembership } from "@plane/types";
 import { renderFormattedDate } from "@plane/utils";
 // components
 import { MemberHeaderColumn } from "@/components/project/member-header-column";
-import { AccountTypeColumn, NameColumn } from "@/components/project/settings/member-columns";
+import {
+  AccountTypeColumn,
+  FunctionalRolesColumn,
+  MemberTypeColumn,
+  NameColumn,
+} from "@/components/project/settings/member-columns";
 // hooks
 import { useMember } from "@/hooks/store/use-member";
 import { useUser, useUserPermissions } from "@/hooks/store/user";
 import type { IMemberFilters } from "@/store/member/utils";
+import projectMemberService, {
+  type TMeshFunctionalRole,
+} from "@/services/project/project-member.service";
 
-export interface RowData extends Pick<TProjectMembership, "original_role"> {
-  member: IWorkspaceMember;
+export interface RowData extends Pick<
+  TProjectMembership,
+  "original_role" | "is_agent" | "functional_roles" | "agent_profile"
+> {
+  id: string | null;
+  member: IUserLite;
 }
 
 type TUseProjectColumnsProps = {
@@ -30,6 +42,7 @@ export const useProjectColumns = (props: TUseProjectColumnsProps) => {
   const { projectId, workspaceSlug } = props;
   // states
   const [removeMemberModal, setRemoveMemberModal] = useState<RowData | null>(null);
+  const [functionalRoles, setFunctionalRoles] = useState<TMeshFunctionalRole[]>([]);
 
   // store hooks
   const { data: currentUser } = useUser();
@@ -44,12 +57,20 @@ export const useProjectColumns = (props: TUseProjectColumnsProps) => {
     [EUserPermissions.ADMIN],
     EUserPermissionsLevel.PROJECT,
     workspaceSlug.toString(),
-    projectId.toString()
+    projectId.toString(),
   );
   const currentProjectRole =
-    getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug.toString(), projectId.toString()) ?? EUserPermissions.GUEST;
+    getProjectRoleByWorkspaceSlugAndProjectId(workspaceSlug.toString(), projectId.toString()) ??
+    EUserPermissions.GUEST;
 
   const displayFilters = getFilters(projectId);
+
+  useEffect(() => {
+    void projectMemberService
+      .fetchMeshFunctionalRoles(workspaceSlug, projectId)
+      .then(setFunctionalRoles)
+      .catch(() => setFunctionalRoles([]));
+  }, [projectId, workspaceSlug]);
 
   // handlers
   const handleDisplayFilterUpdate = (filters: Partial<IMemberFilters>) => {
@@ -100,11 +121,18 @@ export const useProjectColumns = (props: TUseProjectColumnsProps) => {
           handleDisplayFilterUpdate={handleDisplayFilterUpdate}
         />
       ),
-      tdRender: (rowData: RowData) => <div className="w-48 text-secondary">{rowData.member.email}</div>,
+      tdRender: (rowData: RowData) => (
+        <div className="w-48 text-secondary">{rowData.member.email}</div>
+      ),
     },
     {
-      key: "Account Type",
-      content: "Account type",
+      key: "Member Type",
+      content: "Member type",
+      tdRender: (rowData: RowData) => <MemberTypeColumn rowData={rowData} />,
+    },
+    {
+      key: "Project Role",
+      content: "Project role",
       thRender: () => (
         <MemberHeaderColumn
           property="role"
@@ -122,6 +150,19 @@ export const useProjectColumns = (props: TUseProjectColumnsProps) => {
       ),
     },
     {
+      key: "Functional Roles",
+      content: "Functional roles",
+      tdRender: (rowData: RowData) => (
+        <FunctionalRolesColumn
+          availableRoles={functionalRoles}
+          isAdmin={isAdmin}
+          projectId={projectId}
+          rowData={rowData}
+          workspaceSlug={workspaceSlug}
+        />
+      ),
+    },
+    {
       key: "Joining Date",
       content: "Joining date",
       thRender: () => (
@@ -131,7 +172,9 @@ export const useProjectColumns = (props: TUseProjectColumnsProps) => {
           handleDisplayFilterUpdate={handleDisplayFilterUpdate}
         />
       ),
-      tdRender: (rowData: RowData) => <div>{renderFormattedDate(rowData?.member?.joining_date)}</div>,
+      tdRender: (rowData: RowData) => (
+        <div>{renderFormattedDate(rowData?.member?.joining_date)}</div>
+      ),
     },
   ];
   return {

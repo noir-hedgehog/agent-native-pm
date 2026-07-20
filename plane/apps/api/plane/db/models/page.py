@@ -26,6 +26,11 @@ class Page(BaseModel):
     DEFAULT_SORT_ORDER = 65535
 
     ACCESS_CHOICES = ((PRIVATE_ACCESS, "Private"), (PUBLIC_ACCESS, "Public"))
+    SOURCE_FORMAT_CHOICES = (
+        ("rich_text", "Rich text"),
+        ("markdown", "Markdown"),
+        ("yaml", "YAML"),
+    )
 
     workspace = models.ForeignKey("db.Workspace", on_delete=models.CASCADE, related_name="pages")
     name = models.TextField(blank=True)
@@ -33,6 +38,8 @@ class Page(BaseModel):
     description_binary = models.BinaryField(null=True)
     description_html = models.TextField(blank=True, default="<p></p>")
     description_stripped = models.TextField(blank=True, null=True)
+    source_format = models.CharField(max_length=16, choices=SOURCE_FORMAT_CHOICES, default="rich_text")
+    source_text = models.TextField(blank=True)
     owned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="pages")
     access = models.PositiveSmallIntegerField(choices=((0, "Public"), (1, "Private")), default=0)
     color = models.CharField(max_length=255, blank=True)
@@ -164,6 +171,8 @@ class PageVersion(BaseModel):
     description_html = models.TextField(blank=True, default="<p></p>")
     description_stripped = models.TextField(blank=True, null=True)
     description_json = models.JSONField(default=dict, blank=True)
+    source_format = models.CharField(max_length=16, choices=Page.SOURCE_FORMAT_CHOICES, default="rich_text")
+    source_text = models.TextField(blank=True)
     sub_pages_data = models.JSONField(default=dict, blank=True)
 
     class Meta:

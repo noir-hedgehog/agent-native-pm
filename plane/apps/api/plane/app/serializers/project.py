@@ -187,10 +187,54 @@ class ProjectMemberAdminSerializer(BaseSerializer):
 
 class ProjectMemberRoleSerializer(DynamicBaseSerializer):
     original_role = serializers.IntegerField(source="role", read_only=True)
+    is_agent = serializers.BooleanField(source="member.is_bot", read_only=True)
+    functional_roles = serializers.SerializerMethodField()
+    agent_profile = serializers.SerializerMethodField()
+
+    def get_functional_roles(self, obj):
+        return [
+            {
+                "id": str(assignment.functional_role_id),
+                "key": assignment.functional_role.key,
+                "name": assignment.functional_role.name,
+            }
+            for assignment in obj.mesh_functional_roles.filter(deleted_at__isnull=True).select_related("functional_role")
+        ]
+
+    def get_agent_profile(self, obj):
+        if not obj.member.is_bot:
+            return None
+        profile = obj.member.mesh_agent_profiles.filter(
+            workspace_id=obj.workspace_id, deleted_at__isnull=True
+        ).first()
+        if not profile:
+            return None
+        execution = profile.execution_profiles.filter(is_active=True, deleted_at__isnull=True).order_by("-is_default").first()
+        return {
+            "agent_id": profile.agent_id,
+            "agent_type": profile.agent_type,
+            "runtime_provider": profile.runtime_provider,
+            "status": profile.status,
+            "trust_level": profile.trust_level,
+            "capability_claims": profile.capability_claims,
+            "boundaries": profile.boundaries,
+            "available": bool((profile.agent_card or {}).get("available", True)),
+            "default_model": execution.model if execution else None,
+        }
 
     class Meta:
         model = ProjectMember
-        fields = ("id", "role", "member", "project", "original_role", "created_at")
+        fields = (
+            "id",
+            "role",
+            "member",
+            "project",
+            "original_role",
+            "created_at",
+            "is_agent",
+            "functional_roles",
+            "agent_profile",
+        )
         read_only_fields = ["original_role", "created_at"]
 
 

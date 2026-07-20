@@ -5,6 +5,7 @@ __pycache__/
 .env.*
 !.env.example
 !.env.agentpm.example
+!.env.mesh.example
 .coverage
 .pytest_cache/
 dist/

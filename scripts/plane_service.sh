@@ -28,6 +28,19 @@ require_plane_dir() {
   fi
 }
 
+ensure_local_env() {
+  "$ROOT_DIR/scripts/init_mesh_console_env.sh"
+}
+
+backend_is_running() {
+  local container
+  for container in plane-db plane-redis plane-mq plane-minio api bgworker beatworker mesh-runner mesh-indexer; do
+    if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != "true" ]; then
+      return 1
+    fi
+  done
+}
+
 compose() {
   docker compose "$@"
 }
@@ -36,11 +49,17 @@ cmd="${1:-}"
 case "$cmd" in
   up)
     require_plane_dir
+    ensure_local_env
     cd "$PLANE_DIR"
     compose -f docker-compose.yml up -d
     ;;
   backend)
     require_plane_dir
+    ensure_local_env
+    if backend_is_running; then
+      echo "Mesh Console backend is already running."
+      exit 0
+    fi
     cd "$PLANE_DIR"
     compose -f docker-compose.yml up -d plane-db plane-redis plane-mq plane-minio migrator api worker beat-worker
     ;;

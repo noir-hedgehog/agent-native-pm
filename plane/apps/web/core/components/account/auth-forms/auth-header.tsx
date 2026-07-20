@@ -27,30 +27,30 @@ type TAuthHeader = {
 const Titles = {
   [EAuthModes.SIGN_IN]: {
     [EAuthSteps.EMAIL]: {
-      header: "Work in all dimensions.",
-      subHeader: "Welcome back to Plane.",
+      header: "Coordinate work clearly.",
+      subHeader: "Welcome back to Mesh.",
     },
     [EAuthSteps.PASSWORD]: {
-      header: "Work in all dimensions.",
-      subHeader: "Welcome back to Plane.",
+      header: "Coordinate work clearly.",
+      subHeader: "Welcome back to Mesh.",
     },
     [EAuthSteps.UNIQUE_CODE]: {
-      header: "Work in all dimensions.",
-      subHeader: "Welcome back to Plane.",
+      header: "Coordinate work clearly.",
+      subHeader: "Welcome back to Mesh.",
     },
   },
   [EAuthModes.SIGN_UP]: {
     [EAuthSteps.EMAIL]: {
-      header: "Work in all dimensions.",
-      subHeader: "Create your Plane account.",
+      header: "Coordinate work clearly.",
+      subHeader: "Create your Mesh account.",
     },
     [EAuthSteps.PASSWORD]: {
-      header: "Work in all dimensions.",
-      subHeader: "Create your Plane account.",
+      header: "Coordinate work clearly.",
+      subHeader: "Create your Mesh account.",
     },
     [EAuthSteps.UNIQUE_CODE]: {
-      header: "Work in all dimensions.",
-      subHeader: "Create your Plane account.",
+      header: "Coordinate work clearly.",
+      subHeader: "Create your Mesh account.",
     },
   },
 };
@@ -64,18 +64,21 @@ export const AuthHeader = observer(function AuthHeader(props: TAuthHeader) {
 
   const { data: invitation, isLoading } = useSWR(
     workspaceSlug && invitationId ? `WORKSPACE_INVITATION_${workspaceSlug}_${invitationId}` : null,
-    async () => workspaceSlug && invitationId && workSpaceService.getWorkspaceInvitation(workspaceSlug, invitationId),
+    async () =>
+      workspaceSlug &&
+      invitationId &&
+      workSpaceService.getWorkspaceInvitation(workspaceSlug, invitationId),
     {
       revalidateOnFocus: false,
       shouldRetryOnError: false,
-    }
+    },
   );
 
   const getHeaderSubHeader = (
     step: EAuthSteps,
     mode: EAuthModes,
     invitation: IWorkspaceMemberInvitation | undefined,
-    email: string | undefined
+    email: string | undefined,
   ) => {
     if (invitation && email && invitation.email === email && invitation.workspace) {
       const workspace = invitation.workspace;
@@ -83,7 +86,11 @@ export const AuthHeader = observer(function AuthHeader(props: TAuthHeader) {
         header: (
           <div className="relative inline-flex items-center gap-2">
             {t("common.join")}{" "}
-            <WorkspaceLogo logo={workspace?.logo_url} name={workspace?.name} classNames="size-9 flex-shrink-0" />{" "}
+            <WorkspaceLogo
+              logo={workspace?.logo_url}
+              name={workspace?.name}
+              classNames="size-9 flex-shrink-0"
+            />{" "}
             {workspace.name}
           </div>
         ),
@@ -97,7 +104,12 @@ export const AuthHeader = observer(function AuthHeader(props: TAuthHeader) {
     return Titles[mode][step];
   };
 
-  const { header, subHeader } = getHeaderSubHeader(currentAuthStep, authMode, invitation || undefined, invitationEmail);
+  const { header, subHeader } = getHeaderSubHeader(
+    currentAuthStep,
+    authMode,
+    invitation || undefined,
+    invitationEmail,
+  );
 
   if (isLoading)
     return (

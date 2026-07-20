@@ -95,6 +95,19 @@ export interface IProjectMemberLite {
 export type TProjectMembership = {
   member: string;
   role: TUserPermissions | EUserProjectRoles;
+  is_agent?: boolean;
+  functional_roles?: { id: string; key: string; name: string }[];
+  agent_profile?: {
+    agent_id: string;
+    agent_type: string;
+    runtime_provider: string;
+    status: string;
+    trust_level: string;
+    capability_claims: string[];
+    boundaries: Record<string, unknown>;
+    available: boolean;
+    default_model: string | null;
+  } | null;
 } & (
   | {
       id: string;

@@ -5,6 +5,7 @@
 # Third party imports
 from rest_framework import serializers
 import base64
+from django.db import transaction
 
 # Module imports
 from .base import BaseSerializer
@@ -55,6 +56,8 @@ class PageSerializer(BaseSerializer):
             "logo_props",
             "label_ids",
             "project_ids",
+            "source_format",
+            "source_text",
         ]
         read_only_fields = ["workspace", "owned_by"]
 
@@ -65,6 +68,8 @@ class PageSerializer(BaseSerializer):
         description_json = self.context["description_json"]
         description_binary = self.context["description_binary"]
         description_html = self.context["description_html"]
+        source_format = self.context.get("source_format", "rich_text")
+        source_text = self.context.get("source_text", "")
 
         # Get the workspace id from the project
         project = Project.objects.get(pk=project_id)
@@ -75,6 +80,8 @@ class PageSerializer(BaseSerializer):
             description_json=description_json,
             description_binary=description_binary,
             description_html=description_html,
+            source_format=source_format,
+            source_text=source_text,
             owned_by_id=owned_by_id,
             workspace_id=project.workspace_id,
         )
@@ -146,6 +153,7 @@ class PageVersionSerializer(BaseSerializer):
             "updated_at",
             "created_by",
             "updated_by",
+            "source_format",
         ]
         read_only_fields = ["workspace", "page"]
 
@@ -161,6 +169,8 @@ class PageVersionDetailSerializer(BaseSerializer):
             "description_binary",
             "description_html",
             "description_json",
+            "source_format",
+            "source_text",
             "owned_by",
             "created_at",
             "updated_at",
@@ -176,6 +186,8 @@ class PageBinaryUpdateSerializer(serializers.Serializer):
     description_binary = serializers.CharField(required=False, allow_blank=True)
     description_html = serializers.CharField(required=False, allow_blank=True)
     description_json = serializers.JSONField(required=False, allow_null=True)
+    source_format = serializers.ChoiceField(required=False, choices=Page.SOURCE_FORMAT_CHOICES)
+    source_text = serializers.CharField(required=False, allow_blank=True)
 
     def validate_description_binary(self, value):
         """Validate the base64-encoded binary data"""
@@ -221,5 +233,15 @@ class PageBinaryUpdateSerializer(serializers.Serializer):
         if "description_json" in validated_data:
             instance.description_json = validated_data.get("description_json")
 
+        if "source_format" in validated_data:
+            instance.source_format = validated_data.get("source_format")
+
+        if "source_text" in validated_data:
+            instance.source_text = validated_data.get("source_text")
+
         instance.save()
+        if instance.source_format == "markdown":
+            from plane.bgtasks.mesh_indexer import index_mesh_page
+
+            transaction.on_commit(lambda: index_mesh_page.delay(str(instance.id)))
         return instance

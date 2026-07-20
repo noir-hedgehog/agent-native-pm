@@ -104,19 +104,30 @@ function defaultPolicy(projectId: string): TProjectPolicy {
     project_id: projectId,
     pipeline_definition: roles,
     agent_profile_by_role: Object.fromEntries(roles.map((role) => [role, "iris"])),
-    transition_approval_rules: Object.fromEntries(transitionKeysFor(roles).map((key) => [key, false])),
+    transition_approval_rules: Object.fromEntries(
+      transitionKeysFor(roles).map((key) => [key, false]),
+    ),
     transition_timeout_hours: { reminder: 24, block: 72 },
-    allowed_actions_by_role: Object.fromEntries(roles.map((role) => [role, splitCsv(DEFAULT_ACTIONS)])),
+    allowed_actions_by_role: Object.fromEntries(
+      roles.map((role) => [role, splitCsv(DEFAULT_ACTIONS)]),
+    ),
     published_by: "plane-admin",
     change_note: "",
   };
 }
 
-function AgentPolicySettingsPage({ params }: { params: { projectId: string; workspaceSlug: string } }) {
+function AgentPolicySettingsPage({
+  params,
+}: {
+  params: { projectId: string; workspaceSlug: string };
+}) {
   const { projectId, workspaceSlug } = params;
   const { workspaceUserInfo, allowPermissions } = useUserPermissions();
   const { currentProjectDetails: projectDetails } = useProject();
-  const canPerformProjectAdminActions = allowPermissions([EUserPermissions.ADMIN], EUserPermissionsLevel.PROJECT);
+  const canPerformProjectAdminActions = allowPermissions(
+    [EUserPermissions.ADMIN],
+    EUserPermissionsLevel.PROJECT,
+  );
 
   const [pipelineText, setPipelineText] = useState(DEFAULT_PIPELINE);
   const [agentMapText, setAgentMapText] = useState("");
@@ -160,7 +171,7 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
           Object.entries(policy.transition_approval_rules)
             .filter(([, required]) => required)
             .map(([key]) => key)
-            .join("\n")
+            .join("\n"),
         );
         setActionsText(stringifyActionsByRole(policy.allowed_actions_by_role));
         setReminderHours(String(policy.transition_timeout_hours.reminder));
@@ -217,7 +228,7 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
       pipeline_definition: roles,
       agent_profile_by_role: agentMap,
       transition_approval_rules: Object.fromEntries(
-        transitionKeysFor(roles).map((key) => [key, selectedApprovals.has(key)])
+        transitionKeysFor(roles).map((key) => [key, selectedApprovals.has(key)]),
       ),
       transition_timeout_hours: {
         reminder: Number(reminderHours),
@@ -261,7 +272,11 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
   const handleApprovalDecision = async (approvalId: string, decision: "approve" | "reject") => {
     const note = decisionNotes[approvalId]?.trim() || "";
     if (decision === "reject" && !note) {
-      setToast({ type: TOAST_TYPE.ERROR, title: "Decision note required", message: "Add a reason before rejecting." });
+      setToast({
+        type: TOAST_TYPE.ERROR,
+        title: "Decision note required",
+        message: "Add a reason before rejecting.",
+      });
       return;
     }
     setDecidingApprovalId(approvalId);
@@ -277,7 +292,10 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
       setToast({
         type: TOAST_TYPE.SUCCESS,
         title: decision === "approve" ? "Pipeline resumed" : "Pipeline blocked",
-        message: decision === "approve" ? "The next Agent stage has been queued." : "The execution was rejected.",
+        message:
+          decision === "approve"
+            ? "The next Agent stage has been queued."
+            : "The execution was rejected.",
       });
       await loadPolicy();
     } catch (error) {
@@ -301,7 +319,10 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
     <SettingsContentWrapper header={<AgentPolicyProjectSettingsHeader />} hugging>
       <PageHead title={pageTitle} />
       <section className="w-full">
-        <SettingsHeading title="Agent Policy" description="Project-level agent workflow and permissions." />
+        <SettingsHeading
+          title="Agent Policy"
+          description="Project-level agent workflow and permissions."
+        />
 
         <div className="mt-6 space-y-8">
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -399,7 +420,12 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
                 <RefreshCcw className="mr-2 size-4" />
                 Reload
               </Button>
-              <Button variant="primary" onClick={handlePublish} loading={isSaving} disabled={isLoading}>
+              <Button
+                variant="primary"
+                onClick={handlePublish}
+                loading={isSaving}
+                disabled={isLoading}
+              >
                 <Save className="mr-2 size-4" />
                 Publish policy
               </Button>
@@ -410,18 +436,31 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
             <h3 className="text-sm font-medium text-primary">Active execution</h3>
             <div className="mt-3 overflow-hidden border-y border-subtle-1">
               {runtimeSessions.length === 0 ? (
-                <div className="px-3 py-3 text-sm text-secondary">No AgentPM execution has been recorded for this project.</div>
+                <div className="px-3 py-3 text-sm text-secondary">
+                  No Mesh execution has been recorded for this project.
+                </div>
               ) : (
                 runtimeSessions.slice(0, 10).map((session) => (
-                  <div key={session.task_session_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-subtle-1 px-3 py-2 last:border-b-0">
+                  <div
+                    key={session.task_session_id}
+                    className="flex flex-wrap items-center justify-between gap-3 border-b border-subtle-1 px-3 py-2 last:border-b-0"
+                  >
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-primary">{session.task_id}</div>
-                      <div className="text-11 text-secondary">{session.runs.map((run) => `${run.stage_role}:${run.agent_profile}`).join(" → ") || "Waiting for first run"}</div>
+                      <div className="truncate text-sm font-medium text-primary">
+                        {session.task_id}
+                      </div>
+                      <div className="text-11 text-secondary">
+                        {session.runs
+                          .map((run) => `${run.stage_role}:${run.agent_profile}`)
+                          .join(" → ") || "Waiting for first run"}
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2 text-12">
                       {session.pending_approval && (
                         <>
-                          <span className="text-warning-primary">Approval → {session.pending_approval.to_stage_role}</span>
+                          <span className="text-warning-primary">
+                            Approval → {session.pending_approval.to_stage_role}
+                          </span>
                           <Input
                             className="h-8 w-48"
                             placeholder="Decision note"
@@ -439,7 +478,12 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
                             title="Approve and resume"
                             aria-label="Approve and resume"
                             disabled={decidingApprovalId === session.pending_approval.approval_id}
-                            onClick={() => void handleApprovalDecision(session.pending_approval!.approval_id, "approve")}
+                            onClick={() =>
+                              void handleApprovalDecision(
+                                session.pending_approval!.approval_id,
+                                "approve",
+                              )
+                            }
                           >
                             <Check className="size-4" />
                           </button>
@@ -449,13 +493,20 @@ function AgentPolicySettingsPage({ params }: { params: { projectId: string; work
                             title="Reject and block"
                             aria-label="Reject and block"
                             disabled={decidingApprovalId === session.pending_approval.approval_id}
-                            onClick={() => void handleApprovalDecision(session.pending_approval!.approval_id, "reject")}
+                            onClick={() =>
+                              void handleApprovalDecision(
+                                session.pending_approval!.approval_id,
+                                "reject",
+                              )
+                            }
                           >
                             <X className="size-4" />
                           </button>
                         </>
                       )}
-                      <span className="rounded-sm bg-surface-2 px-2 py-1 text-secondary">{session.status}</span>
+                      <span className="rounded-sm bg-surface-2 px-2 py-1 text-secondary">
+                        {session.status}
+                      </span>
                     </div>
                   </div>
                 ))

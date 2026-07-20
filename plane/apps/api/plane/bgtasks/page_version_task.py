@@ -29,8 +29,12 @@ def track_page_version(page_id, existing_instance, user_id):
         sub_pages = {}
 
 
-        # Create a version if description_html is updated
-        if current_instance.get("description_html") != page.description_html:
+        # Rich text and source pages share the same version history.
+        if (
+            current_instance.get("description_html") != page.description_html
+            or current_instance.get("source_format") != page.source_format
+            or current_instance.get("source_text") != page.source_text
+        ):
             # Fetch the latest page version
             page_version = PageVersion.objects.filter(page_id=page_id).order_by("-last_saved_at").first()
 
@@ -42,8 +46,10 @@ def track_page_version(page_id, existing_instance, user_id):
             ):
                 page_version.description_html = page.description_html
                 page_version.description_binary = page.description_binary
-                page_version.description_json = page.description
+                page_version.description_json = page.description_json
                 page_version.description_stripped = page.description_stripped
+                page_version.source_format = page.source_format
+                page_version.source_text = page.source_text
                 page_version.sub_pages_data = sub_pages
                 page_version.save(
                     update_fields=[
@@ -51,6 +57,8 @@ def track_page_version(page_id, existing_instance, user_id):
                         "description_binary",
                         "description_json",
                         "description_stripped",
+                        "source_format",
+                        "source_text",
                         "sub_pages_data",
                         "updated_at"
                     ]
@@ -60,13 +68,15 @@ def track_page_version(page_id, existing_instance, user_id):
                 PageVersion.objects.create(
                     page_id=page_id,
                     workspace_id=page.workspace_id,
-                    description_json=page.description,
+                    description_json=page.description_json,
                     description_html=page.description_html,
                     description_binary=page.description_binary,
                     description_stripped=page.description_stripped,
                     owned_by_id=user_id,
                     last_saved_at=timezone.now(),
                     sub_pages_data=sub_pages,
+                    source_format=page.source_format,
+                    source_text=page.source_text,
                 )
             # If page versions are greater than 20 delete the oldest one
             if PageVersion.objects.filter(page_id=page_id).count() > 20:

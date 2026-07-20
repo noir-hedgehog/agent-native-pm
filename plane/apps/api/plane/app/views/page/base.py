@@ -135,6 +135,8 @@ class PageViewSet(BaseViewSet):
                 "description_json": request.data.get("description_json", {}),
                 "description_binary": request.data.get("description_binary", None),
                 "description_html": request.data.get("description_html", "<p></p>"),
+                "source_format": request.data.get("source_format", "rich_text"),
+                "source_text": request.data.get("source_text", ""),
             },
         )
 
@@ -549,7 +551,14 @@ class PagesDescriptionViewSet(BaseViewSet):
         old_description_html = page.description_html
 
         # Serialize the existing instance
-        existing_instance = json.dumps({"description_html": old_description_html}, cls=DjangoJSONEncoder)
+        existing_instance = json.dumps(
+            {
+                "description_html": old_description_html,
+                "source_format": page.source_format,
+                "source_text": page.source_text,
+            },
+            cls=DjangoJSONEncoder,
+        )
 
         # Use serializer for validation and update
         serializer = PageBinaryUpdateSerializer(page, data=request.data, partial=True)

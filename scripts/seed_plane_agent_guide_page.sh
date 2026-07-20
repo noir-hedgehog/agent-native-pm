@@ -4,10 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-DOC_PATH="${AGENTPM_AGENT_GUIDE_DOC:-docs/agent-plane-mcp-guide.md}"
-PAGE_TITLE="${AGENTPM_AGENT_GUIDE_PAGE_TITLE:-Agent Guide: Plane + MCP}"
-EXTERNAL_SOURCE="agentpm"
-EXTERNAL_ID="agent-plane-mcp-guide"
+DOC_PATH="${MESH_AGENT_GUIDE_DOC:-${AGENTPM_AGENT_GUIDE_DOC:-docs/agent-plane-mcp-guide.md}}"
+PAGE_TITLE="${MESH_AGENT_GUIDE_PAGE_TITLE:-${AGENTPM_AGENT_GUIDE_PAGE_TITLE:-Mesh Agent Guide: Console + MCP}}"
+EXTERNAL_SOURCE="mesh"
+EXTERNAL_ID="mesh-console-mcp-guide"
 DOCKER=(docker)
 if ! docker info >/dev/null 2>&1; then
   DOCKER=(sudo docker)
@@ -18,25 +18,33 @@ if [ ! -f "$DOC_PATH" ]; then
   exit 1
 fi
 
-eval "$("./scripts/seed_plane_mvp.sh" | /usr/bin/grep '^export ')"
-
-API_CONTAINER="$("${DOCKER[@]}" compose -f plane/docker-compose.yml ps -q api)"
+API_CONTAINER="$("${DOCKER[@]}" ps --filter 'name=^/api$' --format '{{.ID}}' | head -1)"
 if [ -z "$API_CONTAINER" ]; then
   echo "Plane api container is not running. Start it with ./scripts/plane_service.sh backend" >&2
+  exit 1
+fi
+
+PLANE_WORKSPACE_SLUG="${PLANE_WORKSPACE_SLUG:-agentpm}"
+REAL_PROJECT_ID="${MESH_PROJECT_ID:-${REAL_PROJECT_ID:-}}"
+if [ -z "$REAL_PROJECT_ID" ]; then
+  REAL_PROJECT_ID="$("${DOCKER[@]}" exec -e PLANE_WORKSPACE_SLUG="$PLANE_WORKSPACE_SLUG" "$API_CONTAINER" python manage.py shell -c 'import os; from plane.db.models import Project; project = Project.objects.filter(workspace__slug=os.environ["PLANE_WORKSPACE_SLUG"], deleted_at__isnull=True).order_by("created_at").first(); print(project.id if project else "")' | tail -1)"
+fi
+if [ -z "$REAL_PROJECT_ID" ]; then
+  echo "No Plane project found in workspace: $PLANE_WORKSPACE_SLUG" >&2
   exit 1
 fi
 
 CONTAINER_DOC="/tmp/agent-plane-mcp-guide.md"
 "${DOCKER[@]}" cp "$DOC_PATH" "$API_CONTAINER:$CONTAINER_DOC"
 
-"${DOCKER[@]}" compose -f plane/docker-compose.yml exec -T \
+"${DOCKER[@]}" exec -i \
   -e PLANE_WORKSPACE_SLUG="$PLANE_WORKSPACE_SLUG" \
   -e REAL_PROJECT_ID="$REAL_PROJECT_ID" \
   -e GUIDE_DOC_PATH="$CONTAINER_DOC" \
   -e GUIDE_PAGE_TITLE="$PAGE_TITLE" \
   -e GUIDE_EXTERNAL_SOURCE="$EXTERNAL_SOURCE" \
   -e GUIDE_EXTERNAL_ID="$EXTERNAL_ID" \
-  api python manage.py shell <<'PY'
+  "$API_CONTAINER" python manage.py shell <<'PY'
 import html
 import os
 from pathlib import Path
@@ -112,7 +120,17 @@ external_id = os.environ["GUIDE_EXTERNAL_ID"]
 
 project = Project.objects.select_related("workspace", "project_lead").get(id=project_id, workspace__slug=workspace_slug)
 workspace = project.workspace
-owner = project.project_lead or workspace.owner
+human_admin = (
+    WorkspaceMember.objects.filter(
+        workspace=workspace,
+        is_active=True,
+        role__gte=20,
+        member__is_bot=False,
+    )
+    .select_related("member")
+    .first()
+)
+owner = human_admin.member if human_admin else (project.project_lead or workspace.owner)
 if owner is None:
     admin_member = (
         WorkspaceMember.objects.filter(workspace=workspace, is_active=True, role__gte=20)
@@ -131,6 +149,7 @@ description_html = markdown_to_html(markdown)
 
 page = (
     Page.objects.filter(workspace=workspace, external_source=external_source, external_id=external_id).first()
+    or Page.objects.filter(workspace=workspace, external_source="agentpm", external_id="agent-plane-mcp-guide").first()
     or Page.objects.filter(workspace=workspace, projects=project, name=title).first()
 )
 
@@ -142,6 +161,8 @@ if created:
         access=Page.PUBLIC_ACCESS,
         description_json={},
         description_html=description_html,
+        source_format="markdown",
+        source_text=markdown,
         owned_by=owner,
         created_by=owner,
         updated_by=owner,
@@ -153,6 +174,8 @@ else:
     page.access = Page.PUBLIC_ACCESS
     page.description_html = description_html
     page.description_json = {}
+    page.source_format = "markdown"
+    page.source_text = markdown
     page.updated_by = owner
     page.external_source = external_source
     page.external_id = external_id

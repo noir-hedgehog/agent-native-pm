@@ -10,7 +10,8 @@ from html import escape
 from typing import Any, Callable
 
 from django.db import transaction
-from django.db.models import Q
+from django.contrib.postgres.search import SearchQuery, SearchRank
+from django.db.models import F, Q
 from django.core.validators import URLValidator
 from django.core.exceptions import ValidationError
 from rest_framework import status
@@ -38,7 +39,21 @@ from plane.db.models import (
     User,
     Workspace,
     WorkspaceMember,
+    AgentProfile,
+    MeshFunctionalRole,
+    MeshKnowledgeChunk,
+    MeshLoopDefinition,
+    MeshLoopRun,
+    MeshProjectMemberRole,
+    MeshProjectPolicy,
+    MeshRunAttempt,
+    MeshSkill,
+    MeshSkillVersion,
+    MeshStageRun,
 )
+from plane.mesh.discovery import assign_stage, leave_stage_unassigned, list_eligible_agents
+from plane.mesh.runtime import complete_stage, queue_stage_start_on_commit
+from plane.mesh.skills import submit_skill_version
 from plane.utils.issue_relation_mapper import get_actual_relation
 
 from .base import BaseAPIView
@@ -48,15 +63,17 @@ PROTOCOL_VERSION = "2024-11-05"
 ROLE_GUEST = 5
 ROLE_MEMBER = 15
 ROLE_ADMIN = 20
-SKILL_NAME = "agentpm_plane_workflow"
-SKILL_RESOURCE_URI = "agentpm://skills/agentpm-plane-workflow/SKILL.md"
+SKILL_NAME = "mesh_plane_workflow"
+SKILL_RESOURCE_URI = "mesh://skills/mesh-plane-workflow/SKILL.md"
+LEGACY_SKILL_NAME = "agentpm_plane_workflow"
+LEGACY_SKILL_RESOURCE_URI = "agentpm://skills/agentpm-plane-workflow/SKILL.md"
 WORK_ITEM_KINDS = {
     "requirement": "#4F46E5",
     "bug": "#DC2626",
     "task": "#0F766E",
     "analysis": "#B45309",
 }
-SKILL_TEXT = """# AgentPM Plane Workflow
+SKILL_TEXT = """# Mesh Plane Workflow
 
 Use Plane-native MCP as a strict workflow facade. Identity comes from the MCP server token (`X-Api-Key`), never from an `agent_id` argument.
 
@@ -129,7 +146,7 @@ class PlaneNativeMcpEndpoint(BaseAPIView):
                         {
                             "protocolVersion": PROTOCOL_VERSION,
                             "capabilities": {"tools": {}},
-                            "serverInfo": {"name": "plane-native", "version": "0.1.0"},
+                            "serverInfo": {"name": "plane-native", "version": "0.2.0"},
                         },
                     ),
                     status=status.HTTP_200_OK,
@@ -139,7 +156,9 @@ class PlaneNativeMcpEndpoint(BaseAPIView):
                 return Response(status=status.HTTP_202_ACCEPTED)
 
             if method == "tools/list":
-                return Response(_rpc_result(request_id, {"tools": service.tool_descriptors()}), status=status.HTTP_200_OK)
+                return Response(
+                    _rpc_result(request_id, {"tools": service.tool_descriptors()}), status=status.HTTP_200_OK
+                )
 
             if method == "tools/call":
                 name = params.get("name")
@@ -174,16 +193,24 @@ class PlaneNativeMcpEndpoint(BaseAPIView):
                 )
 
             if method == "prompts/list":
-                return Response(_rpc_result(request_id, {"prompts": service.prompt_descriptors()}), status=status.HTTP_200_OK)
+                return Response(
+                    _rpc_result(request_id, {"prompts": service.prompt_descriptors()}), status=status.HTTP_200_OK
+                )
 
             if method == "prompts/get":
-                return Response(_rpc_result(request_id, service.get_prompt(params.get("name"))), status=status.HTTP_200_OK)
+                return Response(
+                    _rpc_result(request_id, service.get_prompt(params.get("name"))), status=status.HTTP_200_OK
+                )
 
             if method == "resources/list":
-                return Response(_rpc_result(request_id, {"resources": service.resource_descriptors()}), status=status.HTTP_200_OK)
+                return Response(
+                    _rpc_result(request_id, {"resources": service.resource_descriptors()}), status=status.HTTP_200_OK
+                )
 
             if method == "resources/read":
-                return Response(_rpc_result(request_id, service.read_resource(params.get("uri"))), status=status.HTTP_200_OK)
+                return Response(
+                    _rpc_result(request_id, service.read_resource(params.get("uri"))), status=status.HTTP_200_OK
+                )
 
             return Response(_rpc_error(request_id, -32601, f"method not found: {method}"), status=status.HTTP_200_OK)
         except McpToolError as exc:
@@ -195,7 +222,7 @@ class PlaneNativeMcpEndpoint(BaseAPIView):
         service = PlaneNativeMcpService(request=request, slug=slug)
         return Response(
             {
-                "name": "plane-native",
+                "name": "mesh-native",
                 "protocolVersion": PROTOCOL_VERSION,
                 "workspace": slug,
                 "tools": [tool["name"] for tool in service.tool_descriptors()],
@@ -257,6 +284,20 @@ class PlaneNativeMcpService:
             "plane_create_module": self.create_module,
             "plane_add_work_item_to_module": self.add_work_item_to_module,
             "plane_remove_work_item_from_module": self.remove_work_item_from_module,
+            "mesh_get_me": self.mesh_get_me,
+            "mesh_list_project_roles": self.mesh_list_project_roles,
+            "mesh_list_eligible_agents": self.mesh_list_eligible_agents,
+            "mesh_get_policy": self.mesh_get_policy,
+            "mesh_list_skills": self.mesh_list_skills,
+            "mesh_get_skill": self.mesh_get_skill,
+            "mesh_submit_skill": self.mesh_submit_skill,
+            "mesh_search_knowledge": self.mesh_search_knowledge,
+            "mesh_get_loop": self.mesh_get_loop,
+            "mesh_list_runs": self.mesh_list_runs,
+            "mesh_get_run": self.mesh_get_run,
+            "mesh_assign_stage": self.mesh_assign_stage,
+            "mesh_handoff_work_item": self.mesh_assign_stage,
+            "mesh_complete_stage": self.mesh_complete_stage,
         }
 
     def call_tool(self, *, name: str | None, args: dict[str, Any]) -> str:
@@ -276,16 +317,20 @@ class PlaneNativeMcpService:
     def prompt_descriptors(self) -> list[dict[str, Any]]:
         return [
             {
+                "name": LEGACY_SKILL_NAME,
+                "description": "Compatibility alias for the Mesh Plane workflow.",
+            },
+            {
                 "name": SKILL_NAME,
                 "description": "Recommended workflow for using Plane-native MCP safely as an agent.",
-            }
+            },
         ]
 
     def get_prompt(self, name: str | None) -> dict[str, Any]:
-        if name != SKILL_NAME:
+        if name not in {SKILL_NAME, LEGACY_SKILL_NAME}:
             raise McpToolError(f"unknown prompt: {name}", code=-32602)
         return {
-            "description": "AgentPM Plane-native MCP workflow",
+            "description": "Mesh Plane-native MCP workflow",
             "messages": [
                 {
                     "role": "user",
@@ -297,17 +342,23 @@ class PlaneNativeMcpService:
     def resource_descriptors(self) -> list[dict[str, Any]]:
         return [
             {
-                "uri": SKILL_RESOURCE_URI,
+                "uri": LEGACY_SKILL_RESOURCE_URI,
                 "name": "agentpm-plane-workflow",
-                "description": "AgentPM Plane-native MCP workflow skill.",
+                "description": "Compatibility alias for the Mesh Plane workflow skill.",
                 "mimeType": "text/markdown",
-            }
+            },
+            {
+                "uri": SKILL_RESOURCE_URI,
+                "name": "mesh-plane-workflow",
+                "description": "Mesh Plane-native MCP workflow skill.",
+                "mimeType": "text/markdown",
+            },
         ]
 
     def read_resource(self, uri: str | None) -> dict[str, Any]:
-        if uri != SKILL_RESOURCE_URI:
+        if uri not in {SKILL_RESOURCE_URI, LEGACY_SKILL_RESOURCE_URI}:
             raise McpToolError(f"unknown resource: {uri}", code=-32602)
-        return {"contents": [{"uri": SKILL_RESOURCE_URI, "mimeType": "text/markdown", "text": SKILL_TEXT}]}
+        return {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": SKILL_TEXT}]}
 
     def get_me(self, args: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -523,7 +574,10 @@ class PlaneNativeMcpService:
             changed.append("work_item_kind")
         if requested:
             self._emit_issue_activity(issue, requested, previous)
-        return {"work_item": _compact_issue(self._issue(str(issue.id), project_id=str(issue.project_id)), detailed=True), "changed": changed}
+        return {
+            "work_item": _compact_issue(self._issue(str(issue.id), project_id=str(issue.project_id)), detailed=True),
+            "changed": changed,
+        }
 
     def assign_work_item(self, args: dict[str, Any]) -> dict[str, Any]:
         issue = self._issue(_required_arg(args, "work_item_id"), project_id=args.get("project_id"))
@@ -548,7 +602,9 @@ class PlaneNativeMcpService:
         if created:
             current = [str(value) for value in issue.assignees.values_list("id", flat=True)]
             self._emit_issue_activity(issue, {"assignees": current}, {"assignees": previous})
-        return {"work_item": _compact_issue(self._issue(str(issue.id), project_id=str(issue.project_id)), detailed=True)}
+        return {
+            "work_item": _compact_issue(self._issue(str(issue.id), project_id=str(issue.project_id)), detailed=True)
+        }
 
     def add_project_member(self, args: dict[str, Any]) -> dict[str, Any]:
         project = self._project(_required_arg(args, "project_id"))
@@ -609,7 +665,11 @@ class PlaneNativeMcpService:
     def create_work_item(self, args: dict[str, Any]) -> dict[str, Any]:
         project = self._project(_required_arg(args, "project_id"))
         self._require_project_role(project, ROLE_MEMBER)
-        target = self._assignable_agent_user(project, _required_arg(args, "target_agent_id")) if args.get("target_agent_id") else None
+        target = (
+            self._assignable_agent_user(project, _required_arg(args, "target_agent_id"))
+            if args.get("target_agent_id")
+            else None
+        )
         if target:
             target_member = self._project_member(project, target)
             if target_member.role < ROLE_MEMBER:
@@ -809,7 +869,9 @@ class PlaneNativeMcpService:
                     "username": member.member.username,
                     "workspace_role": member.role,
                     "is_bot": member.member.is_bot,
-                    "tokens": APITokenReadSerializer(member.member.bot_tokens.filter(workspace=self.workspace), many=True).data,
+                    "tokens": APITokenReadSerializer(
+                        member.member.bot_tokens.filter(workspace=self.workspace), many=True
+                    ).data,
                 }
                 for member in members
             ]
@@ -892,7 +954,11 @@ class PlaneNativeMcpService:
             module=module,
             created_by_id=self.user.id,
         )
-        return {"module": _compact_module(module), "work_item": _compact_issue(issue), "membership_id": str(membership.id)}
+        return {
+            "module": _compact_module(module),
+            "work_item": _compact_issue(issue),
+            "membership_id": str(membership.id),
+        }
 
     def remove_work_item_from_module(self, args: dict[str, Any]) -> dict[str, Any]:
         issue = self._issue(_required_arg(args, "work_item_id"), project_id=args.get("project_id"))
@@ -901,6 +967,373 @@ class PlaneNativeMcpService:
         if membership:
             membership.delete()
         return {"removed": membership is not None, "work_item_id": str(issue.id)}
+
+    def mesh_get_me(self, args: dict[str, Any]) -> dict[str, Any]:
+        profile = AgentProfile.objects.filter(workspace=self.workspace, user=self.user, deleted_at__isnull=True).first()
+        execution = None
+        if profile:
+            execution = profile.execution_profiles.filter(
+                is_default=True, is_active=True, deleted_at__isnull=True
+            ).first()
+        return {
+            "user": _compact_user(self.user),
+            "account_type": "agent" if profile else "human",
+            "agent": {
+                "agent_id": profile.agent_id,
+                "agent_type": profile.agent_type,
+                "runtime_provider": profile.runtime_provider,
+                "status": profile.status,
+                "trust_level": profile.trust_level,
+                "capability_claims": profile.capability_claims,
+                "boundaries": profile.boundaries,
+                "default_execution": (
+                    {
+                        "provider": execution.provider,
+                        "model": execution.model,
+                        "configuration_version": execution.configuration_version,
+                    }
+                    if execution
+                    else None
+                ),
+            }
+            if profile
+            else None,
+            "workspace": {"id": str(self.workspace.id), "slug": self.workspace.slug, "name": self.workspace.name},
+            "workspace_role": self.workspace_member.role,
+        }
+
+    def mesh_list_project_roles(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        roles = MeshFunctionalRole.objects.filter(project=project, deleted_at__isnull=True).order_by(
+            "sort_order", "name"
+        )
+        return {
+            "roles": [
+                {
+                    "id": str(role.id),
+                    "key": role.key,
+                    "name": role.name,
+                    "description": role.description,
+                    "capabilities": role.capabilities,
+                    "allowed_handoff_role_keys": role.allowed_handoff_role_keys,
+                }
+                for role in roles
+            ]
+        }
+
+    def mesh_list_eligible_agents(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        role_keys = args.get("roles") or ([args["role"]] if args.get("role") else [])
+        if not role_keys:
+            raise McpToolError(
+                "role or roles is required",
+                error_type="missing_functional_role",
+                hint="Call mesh_list_project_roles and pass one or more returned role keys.",
+                suggested_next_tools=["mesh_list_project_roles"],
+            )
+        agents = list_eligible_agents(
+            project_id=str(project.id),
+            role_keys=[str(value) for value in role_keys],
+            required_capabilities=[str(value) for value in args.get("required_capabilities") or []],
+        )
+        return {"agents": [agent.public_dict for agent in agents]}
+
+    def mesh_get_policy(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        policy = (
+            MeshProjectPolicy.objects.filter(
+                project=project,
+                status=MeshProjectPolicy.Status.PUBLISHED,
+                deleted_at__isnull=True,
+            )
+            .order_by("-version")
+            .first()
+        )
+        if not policy:
+            return {"policy": None, "fallback": "Mesh default role and project permission policy applies."}
+        return {
+            "policy": {
+                "id": str(policy.id),
+                "version": policy.version,
+                "source_yaml": policy.source_yaml,
+                "policy": policy.policy,
+                "published_at": policy.published_at,
+                "change_note": policy.change_note,
+            }
+        }
+
+    def mesh_list_skills(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        skills = MeshSkill.objects.filter(project=project, deleted_at__isnull=True).order_by("name")
+        rows = []
+        for skill in skills:
+            versions = skill.versions.filter(
+                status=MeshSkillVersion.Status.PUBLISHED, deleted_at__isnull=True
+            ).order_by("-created_at")
+            latest = versions.first()
+            rows.append(
+                {
+                    "id": str(skill.id),
+                    "slug": skill.slug,
+                    "name": skill.name,
+                    "description": skill.description,
+                    "visibility": skill.visibility,
+                    "published_version": latest.version if latest else None,
+                }
+            )
+        return {"skills": rows}
+
+    def mesh_get_skill(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        identifier = _required_arg(args, "skill_id")
+        skill = (
+            MeshSkill.objects.filter(project=project, deleted_at__isnull=True)
+            .filter(Q(id=identifier) if _looks_like_uuid(identifier) else Q(slug=identifier))
+            .first()
+        )
+        if not skill:
+            raise McpToolError(
+                "Skill not found", error_type="skill_not_found", suggested_next_tools=["mesh_list_skills"]
+            )
+        version = (
+            skill.versions.filter(status=MeshSkillVersion.Status.PUBLISHED, deleted_at__isnull=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if not version:
+            raise McpToolError("Skill has no published version", error_type="skill_not_published")
+        return {
+            "skill": {"id": str(skill.id), "slug": skill.slug, "name": skill.name},
+            "version": version.version,
+            "manifest": version.manifest,
+            "source_text": version.source_text,
+            "checksum": version.checksum,
+        }
+
+    def mesh_submit_skill(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_MEMBER)
+        source_text = _required_arg(args, "source_text")
+        try:
+            submitted = submit_skill_version(project=project, user=self.user, source_text=source_text)
+        except ValueError as exc:
+            raise McpToolError(str(exc), error_type="invalid_skill_source") from exc
+        return {
+            "skill_id": str(submitted.skill.id),
+            "version_id": str(submitted.version.id),
+            "page_id": str(submitted.skill.page_id),
+            "status": submitted.version.status,
+        }
+
+    def mesh_search_knowledge(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        query_text = _required_arg(args, "query")
+        query = SearchQuery(query_text, search_type="websearch")
+        chunks = (
+            MeshKnowledgeChunk.objects.filter(project=project, deleted_at__isnull=True)
+            .select_related("document__page", "document__page_version")
+            .annotate(text_rank=SearchRank(F("content_search"), query))
+            .filter(text_rank__gt=0)
+            .order_by("-text_rank", "document_id", "sort_order")
+        )
+        limit = max(1, min(int(args.get("limit") or 10), 50))
+        return {
+            "results": [
+                {
+                    "heading": chunk.heading,
+                    "content": chunk.content,
+                    "score": float(chunk.text_rank or 0),
+                    "citation": {
+                        "page_id": str(chunk.document.page_id),
+                        "page_version_id": (
+                            str(chunk.document.page_version_id) if chunk.document.page_version_id else None
+                        ),
+                        "page_name": chunk.document.page.name,
+                        "heading": chunk.heading,
+                    },
+                }
+                for chunk in chunks[:limit]
+            ]
+        }
+
+    def mesh_get_loop(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        loop = (
+            MeshLoopDefinition.objects.filter(
+                project=project,
+                slug=_required_arg(args, "slug"),
+                status=MeshLoopDefinition.Status.PUBLISHED,
+                deleted_at__isnull=True,
+            )
+            .order_by("-version")
+            .first()
+        )
+        if not loop:
+            raise McpToolError("Published Loop not found", error_type="loop_not_found")
+        return {
+            "loop": {
+                "id": str(loop.id),
+                "slug": loop.slug,
+                "name": loop.name,
+                "version": loop.version,
+                "source_yaml": loop.source_yaml,
+                "graph": loop.graph,
+                "checksum": loop.checksum,
+            }
+        }
+
+    def mesh_list_runs(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        runs = MeshLoopRun.objects.filter(project=project, deleted_at__isnull=True).select_related(
+            "work_item", "definition"
+        )[:100]
+        return {"runs": [_compact_mesh_run(run) for run in runs]}
+
+    def mesh_get_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_GUEST)
+        run = (
+            MeshLoopRun.objects.filter(id=_required_arg(args, "run_id"), project=project, deleted_at__isnull=True)
+            .select_related("work_item", "definition")
+            .first()
+        )
+        if not run:
+            raise McpToolError(
+                "Loop run not found", error_type="run_not_found", suggested_next_tools=["mesh_list_runs"]
+            )
+        payload = _compact_mesh_run(run)
+        payload["stages"] = [_compact_mesh_stage(stage) for stage in run.stages.select_related("assigned_agent")]
+        return {"run": payload}
+
+    def mesh_assign_stage(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_MEMBER)
+        stage = (
+            MeshStageRun.objects.filter(
+                id=_required_arg(args, "stage_run_id"), project=project, deleted_at__isnull=True
+            )
+            .select_related("loop_run__work_item", "loop_run__definition", "functional_role")
+            .first()
+        )
+        if not stage:
+            raise McpToolError(
+                "Stage run not found", error_type="stage_not_found", suggested_next_tools=["mesh_list_runs"]
+            )
+        if not self._can_assign_mesh_stage(stage):
+            raise McpToolError(
+                "Only the previous Agent, a PM Agent, or Project Admin can assign this stage",
+                error_type="handoff_not_allowed",
+            )
+        target_agent_id = str(args.get("target_agent_id") or "").strip()
+        if not target_agent_id:
+            leave_stage_unassigned(stage)
+            return {"stage": _compact_mesh_stage(stage), "work_item_assigned": False}
+        node = next(
+            (item for item in stage.loop_run.definition.graph.get("nodes", []) if item.get("id") == stage.node_id),
+            {},
+        )
+        roles = [stage.functional_role.key] if stage.functional_role else list(node.get("roles") or [])
+        required = list(node.get("required_capabilities") or [])
+        eligible = {
+            item.agent_id: item
+            for item in list_eligible_agents(
+                project_id=str(project.id), role_keys=roles, required_capabilities=required
+            )
+        }
+        if target_agent_id not in eligible or not eligible[target_agent_id].available:
+            leave_stage_unassigned(stage)
+            raise McpToolError(
+                "Target Agent is not an available eligible project member",
+                error_type="target_not_eligible",
+                hint="Call mesh_list_eligible_agents with the Stage role and capabilities, then retry with a returned agent_id.",
+                suggested_next_tools=["mesh_list_eligible_agents"],
+            )
+        candidate = eligible[target_agent_id]
+        profile = AgentProfile.objects.get(workspace=self.workspace, agent_id=target_agent_id, deleted_at__isnull=True)
+        target_role = (
+            MeshFunctionalRole.objects.filter(
+                project=project,
+                key__in=set(candidate.functional_roles) & set(roles),
+                deleted_at__isnull=True,
+            )
+            .order_by("sort_order")
+            .first()
+        )
+        if not target_role:
+            leave_stage_unassigned(stage)
+            raise McpToolError(
+                "Target Agent has no eligible role for this Stage",
+                error_type="target_role_not_eligible",
+                suggested_next_tools=["mesh_list_eligible_agents"],
+            )
+        try:
+            stage = assign_stage(
+                stage_run=stage,
+                target_agent=profile,
+                target_role=target_role,
+                selected_by_user=self.user,
+                reason=str(args.get("reason") or ""),
+            )
+        except ValueError as exc:
+            leave_stage_unassigned(stage)
+            raise McpToolError(
+                str(exc),
+                error_type="handoff_forbidden_by_policy",
+                hint="Choose an Agent whose functional role is allowed by the published Project Policy.",
+                suggested_next_tools=["mesh_get_policy", "mesh_list_eligible_agents"],
+            ) from exc
+        queue_stage_start_on_commit(str(stage.id))
+        return {"stage": _compact_mesh_stage(stage), "work_item_assigned": True}
+
+    def mesh_complete_stage(self, args: dict[str, Any]) -> dict[str, Any]:
+        profile = AgentProfile.objects.filter(
+            workspace=self.workspace,
+            user=self.user,
+            status=AgentProfile.Status.ACTIVE,
+            deleted_at__isnull=True,
+        ).first()
+        if not profile:
+            raise McpToolError("An active Agent identity is required", error_type="agent_identity_required")
+        try:
+            run = complete_stage(
+                stage_run_id=_required_arg(args, "stage_run_id"),
+                actor_agent=profile,
+                outcome=str(args.get("outcome") or "succeeded"),
+                evidence=list(args.get("evidence") or []),
+                selected_next_node_id=args.get("selected_next_node_id"),
+            )
+        except ValueError as exc:
+            raise McpToolError(str(exc), error_type="invalid_stage_completion") from exc
+        return {"run": _compact_mesh_run(run), "status": run.status}
+
+    def _can_assign_mesh_stage(self, stage: MeshStageRun) -> bool:
+        if self._project_role(stage.project_id) == ROLE_ADMIN:
+            return True
+        profile = AgentProfile.objects.filter(workspace=self.workspace, user=self.user, status="active").first()
+        if not profile:
+            return False
+        if MeshProjectMemberRole.objects.filter(
+            project_id=stage.project_id,
+            project_member__member=self.user,
+            functional_role__key="pm",
+            deleted_at__isnull=True,
+        ).exists():
+            return True
+        return MeshStageRun.objects.filter(
+            loop_run_id=stage.loop_run_id,
+            assigned_agent=profile,
+            status=MeshStageRun.Status.SUCCEEDED,
+            created_at__lt=stage.created_at,
+            deleted_at__isnull=True,
+        ).exists()
 
     def tool_descriptors(self) -> list[dict[str, Any]]:
         tools = [
@@ -927,42 +1360,96 @@ class PlaneNativeMcpService:
             _tool(
                 "plane_search_work_items",
                 "Search Plane work items across visible projects or within one project.",
-                {"query": {"type": "string"}, "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."}, "work_item_kind": {"type": "string", "enum": list(WORK_ITEM_KINDS)}, "limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+                {
+                    "query": {"type": "string"},
+                    "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."},
+                    "work_item_kind": {"type": "string", "enum": list(WORK_ITEM_KINDS)},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
                 ["query"],
             ),
             _tool(
                 "plane_get_work_item",
                 "Get one Plane work item.",
-                {"work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items or plane_search_work_items."}, "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."}},
+                {
+                    "work_item_id": {
+                        "type": "string",
+                        "description": "Work item id/key from plane_list_work_items or plane_search_work_items.",
+                    },
+                    "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."},
+                },
                 ["work_item_id"],
             ),
-            _tool("plane_get_project_summary", "Get project summary counts.", {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}}, ["project_id"]),
-            _tool("plane_list_project_members", "List project members and roles without tokens. Bot rows include canonical agent_id for target_agent_id/member_agent_id.", {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}}, ["project_id"]),
-            _tool("plane_list_labels", "List project labels.", {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}}, ["project_id"]),
-            _tool("plane_list_work_item_kinds", "List AgentPM work item kinds and their backing CE labels.", {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}}, ["project_id"]),
+            _tool(
+                "plane_get_project_summary",
+                "Get project summary counts.",
+                {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}},
+                ["project_id"],
+            ),
+            _tool(
+                "plane_list_project_members",
+                "List project members and roles without tokens. Bot rows include canonical agent_id for target_agent_id/member_agent_id.",
+                {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}},
+                ["project_id"],
+            ),
+            _tool(
+                "plane_list_labels",
+                "List project labels.",
+                {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}},
+                ["project_id"],
+            ),
+            _tool(
+                "plane_list_work_item_kinds",
+                "List AgentPM work item kinds and their backing CE labels.",
+                {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}},
+                ["project_id"],
+            ),
             _tool(
                 "plane_summarize_work_item",
                 "Summarize one Plane work item and recent comments.",
-                {"work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items or plane_search_work_items."}, "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."}},
+                {
+                    "work_item_id": {
+                        "type": "string",
+                        "description": "Work item id/key from plane_list_work_items or plane_search_work_items.",
+                    },
+                    "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."},
+                },
                 ["work_item_id"],
             ),
             _tool(
                 "plane_add_comment",
                 "Add a comment to a Plane work item as the authenticated Plane user.",
-                {"work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items or plane_search_work_items."}, "body": {"type": "string"}, "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."}},
+                {
+                    "work_item_id": {
+                        "type": "string",
+                        "description": "Work item id/key from plane_list_work_items or plane_search_work_items.",
+                    },
+                    "body": {"type": "string"},
+                    "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."},
+                },
                 ["work_item_id", "body"],
             ),
             _tool(
                 "plane_update_status",
                 "Update a Plane work item state.",
-                {"work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items or plane_search_work_items."}, "status": {"type": "string", "description": "State id, name, or group from plane_list_states."}, "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."}},
+                {
+                    "work_item_id": {
+                        "type": "string",
+                        "description": "Work item id/key from plane_list_work_items or plane_search_work_items.",
+                    },
+                    "status": {"type": "string", "description": "State id, name, or group from plane_list_states."},
+                    "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."},
+                },
                 ["work_item_id", "status"],
             ),
             _tool(
                 "plane_update_work_item",
                 "Update allowed Plane work item fields. Members may update only assigned work items.",
                 {
-                    "work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items or plane_search_work_items."},
+                    "work_item_id": {
+                        "type": "string",
+                        "description": "Work item id/key from plane_list_work_items or plane_search_work_items.",
+                    },
                     "project_id": {"type": "string", "description": "Optional project id from plane_list_projects."},
                     "name": {"type": "string"},
                     "description": {"type": "string"},
@@ -972,8 +1459,16 @@ class PlaneNativeMcpService:
                     "state": {"type": "string", "description": "State id, name, or group from plane_list_states."},
                     "start_date": {"type": ["string", "null"]},
                     "target_date": {"type": ["string", "null"]},
-                    "labels": {"type": "array", "items": {"type": "string"}, "description": "Label ids/names from plane_list_labels."},
-                    "assignees": {"type": "array", "items": {"type": "string"}, "description": "Existing project member ids/emails/usernames from plane_list_project_members."},
+                    "labels": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Label ids/names from plane_list_labels.",
+                    },
+                    "assignees": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Existing project member ids/emails/usernames from plane_list_project_members.",
+                    },
                     "work_item_kind": {"type": "string", "enum": list(WORK_ITEM_KINDS)},
                 },
                 ["work_item_id"],
@@ -982,8 +1477,14 @@ class PlaneNativeMcpService:
                 "plane_assign_work_item",
                 "Assign a Plane work item to an agent project member. Admin project role required. target_agent_id must be a short agent id from plane_list_agent_accounts or plane_list_project_members, not a Plane user UUID or email.",
                 {
-                    "work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items, plane_search_work_items, or plane_get_work_item."},
-                    "target_agent_id": {"type": "string", "description": "Canonical short agent id, for example iris. Get it from plane_list_agent_accounts or plane_list_project_members. Do not pass Plane user UUID/email."},
+                    "work_item_id": {
+                        "type": "string",
+                        "description": "Work item id/key from plane_list_work_items, plane_search_work_items, or plane_get_work_item.",
+                    },
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "Canonical short agent id, for example iris. Get it from plane_list_agent_accounts or plane_list_project_members. Do not pass Plane user UUID/email.",
+                    },
                     "project_id": {"type": "string", "description": "Project id from plane_list_projects."},
                 },
                 ["work_item_id", "target_agent_id"],
@@ -993,8 +1494,15 @@ class PlaneNativeMcpService:
                 "Add an existing workspace bot agent to a project. Admin project role required. Does not invite new users.",
                 {
                     "project_id": {"type": "string", "description": "Project id from plane_list_projects."},
-                    "member_agent_id": {"type": "string", "description": "Canonical short agent id, for example iris. Get it from plane_list_agent_accounts. Do not pass Plane user UUID/email."},
-                    "role": {"type": "string", "enum": ["admin", "member", "guest"], "description": "Project role to grant. Defaults to member."},
+                    "member_agent_id": {
+                        "type": "string",
+                        "description": "Canonical short agent id, for example iris. Get it from plane_list_agent_accounts. Do not pass Plane user UUID/email.",
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["admin", "member", "guest"],
+                        "description": "Project role to grant. Defaults to member.",
+                    },
                 },
                 ["project_id", "member_agent_id"],
             ),
@@ -1003,8 +1511,15 @@ class PlaneNativeMcpService:
                 "Add an existing workspace user to a project. Admin project role required. Does not send workspace invitations.",
                 {
                     "project_id": {"type": "string", "description": "Project id from plane_list_projects."},
-                    "user_id": {"type": "string", "description": "Existing workspace user id/email/username from Plane UI or workspace member APIs."},
-                    "role": {"type": "string", "enum": ["admin", "member", "guest"], "description": "Project role to grant. Defaults to member."},
+                    "user_id": {
+                        "type": "string",
+                        "description": "Existing workspace user id/email/username from Plane UI or workspace member APIs.",
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["admin", "member", "guest"],
+                        "description": "Project role to grant. Defaults to member.",
+                    },
                 },
                 ["project_id", "user_id"],
             ),
@@ -1015,7 +1530,11 @@ class PlaneNativeMcpService:
                     "name": {"type": "string"},
                     "identifier": {"type": "string"},
                     "description": {"type": "string"},
-                    "member_agent_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional canonical short agent ids to add as Member project members."},
+                    "member_agent_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional canonical short agent ids to add as Member project members.",
+                    },
                 },
                 ["name", "identifier"],
             ),
@@ -1025,37 +1544,293 @@ class PlaneNativeMcpService:
                 {
                     "project_id": {"type": "string", "description": "Project id from plane_list_projects."},
                     "name": {"type": "string"},
-                    "target_agent_id": {"type": "string", "description": "Canonical short agent id, for example iris. Get it from plane_list_agent_accounts or plane_list_project_members. Do not pass Plane user UUID/email. If missing from the project, Admin should call plane_add_project_member first."},
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "Canonical short agent id, for example iris. Get it from plane_list_agent_accounts or plane_list_project_members. Do not pass Plane user UUID/email. If missing from the project, Admin should call plane_add_project_member first.",
+                    },
                     "description": {"type": "string"},
                     "priority": {"type": "string"},
-                    "state": {"type": "string", "description": "State id, name, or group from plane_list_states for this project."},
+                    "state": {
+                        "type": "string",
+                        "description": "State id, name, or group from plane_list_states for this project.",
+                    },
                     "external_source": {"type": "string"},
                     "external_id": {"type": "string"},
-                    "work_item_kind": {"type": "string", "enum": list(WORK_ITEM_KINDS), "description": "AgentPM kind facade backed by a kind:* CE label."},
+                    "work_item_kind": {
+                        "type": "string",
+                        "enum": list(WORK_ITEM_KINDS),
+                        "description": "AgentPM kind facade backed by a kind:* CE label.",
+                    },
                 },
                 ["project_id", "name"],
             ),
-            _tool("plane_list_work_item_comments", "List work item comments.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["work_item_id"]),
-            _tool("plane_list_work_item_activity", "List work item activity timeline.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["work_item_id"]),
-            _tool("plane_list_work_item_links", "List external links on a work item.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}}, ["work_item_id"]),
-            _tool("plane_add_work_item_link", "Add an external link to an assigned/admin work item.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "url": {"type": "string"}, "title": {"type": "string"}, "metadata": {"type": "object"}}, ["work_item_id", "url"]),
-            _tool("plane_update_work_item_link", "Update an external work item link.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "link_id": {"type": "string"}, "url": {"type": "string"}, "title": {"type": "string"}, "metadata": {"type": "object"}}, ["work_item_id", "link_id"]),
-            _tool("plane_delete_work_item_link", "Delete an external work item link.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "link_id": {"type": "string"}}, ["work_item_id", "link_id"]),
-            _tool("plane_list_work_item_relations", "List grouped relations for a work item.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}}, ["work_item_id"]),
-            _tool("plane_add_work_item_relation", "Add a relation from one work item to related work items.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "relation_type": {"type": "string"}, "related_work_item_id": {"type": "string"}, "related_work_item_ids": {"type": "array", "items": {"type": "string"}}}, ["work_item_id", "relation_type"]),
-            _tool("plane_delete_work_item_relation", "Delete a relation by id or relation tuple.", {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "relation_id": {"type": "string"}, "relation_type": {"type": "string"}, "related_work_item_id": {"type": "string"}}, ["work_item_id"]),
+            _tool(
+                "plane_list_work_item_comments",
+                "List work item comments.",
+                {
+                    "work_item_id": {"type": "string"},
+                    "project_id": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                ["work_item_id"],
+            ),
+            _tool(
+                "plane_list_work_item_activity",
+                "List work item activity timeline.",
+                {
+                    "work_item_id": {"type": "string"},
+                    "project_id": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                ["work_item_id"],
+            ),
+            _tool(
+                "plane_list_work_item_links",
+                "List external links on a work item.",
+                {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}},
+                ["work_item_id"],
+            ),
+            _tool(
+                "plane_add_work_item_link",
+                "Add an external link to an assigned/admin work item.",
+                {
+                    "work_item_id": {"type": "string"},
+                    "project_id": {"type": "string"},
+                    "url": {"type": "string"},
+                    "title": {"type": "string"},
+                    "metadata": {"type": "object"},
+                },
+                ["work_item_id", "url"],
+            ),
+            _tool(
+                "plane_update_work_item_link",
+                "Update an external work item link.",
+                {
+                    "work_item_id": {"type": "string"},
+                    "project_id": {"type": "string"},
+                    "link_id": {"type": "string"},
+                    "url": {"type": "string"},
+                    "title": {"type": "string"},
+                    "metadata": {"type": "object"},
+                },
+                ["work_item_id", "link_id"],
+            ),
+            _tool(
+                "plane_delete_work_item_link",
+                "Delete an external work item link.",
+                {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}, "link_id": {"type": "string"}},
+                ["work_item_id", "link_id"],
+            ),
+            _tool(
+                "plane_list_work_item_relations",
+                "List grouped relations for a work item.",
+                {"work_item_id": {"type": "string"}, "project_id": {"type": "string"}},
+                ["work_item_id"],
+            ),
+            _tool(
+                "plane_add_work_item_relation",
+                "Add a relation from one work item to related work items.",
+                {
+                    "work_item_id": {"type": "string"},
+                    "project_id": {"type": "string"},
+                    "relation_type": {"type": "string"},
+                    "related_work_item_id": {"type": "string"},
+                    "related_work_item_ids": {"type": "array", "items": {"type": "string"}},
+                },
+                ["work_item_id", "relation_type"],
+            ),
+            _tool(
+                "plane_delete_work_item_relation",
+                "Delete a relation by id or relation tuple.",
+                {
+                    "work_item_id": {"type": "string"},
+                    "project_id": {"type": "string"},
+                    "relation_id": {"type": "string"},
+                    "relation_type": {"type": "string"},
+                    "related_work_item_id": {"type": "string"},
+                },
+                ["work_item_id"],
+            ),
             _tool("plane_list_agent_accounts", "List bot Plane users without token secrets.", {}),
-            _tool("plane_list_cycles", "List active project cycles.", {"project_id": {"type": "string"}}, ["project_id"]),
-            _tool("plane_create_cycle", "Create a project cycle. Admin required.", {"project_id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "start_date": {"type": "string", "format": "date-time"}, "end_date": {"type": "string", "format": "date-time"}}, ["project_id", "name"]),
-            _tool("plane_add_work_item_to_cycle", "Add an assigned/admin work item to a cycle.", {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "cycle_id": {"type": "string"}}, ["work_item_id", "cycle_id"]),
-            _tool("plane_remove_work_item_from_cycle", "Remove an assigned/admin work item from a cycle.", {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "cycle_id": {"type": "string"}}, ["work_item_id", "cycle_id"]),
-            _tool("plane_list_modules", "List active project modules.", {"project_id": {"type": "string"}}, ["project_id"]),
-            _tool("plane_create_module", "Create a project module. Admin required.", {"project_id": {"type": "string"}, "name": {"type": "string"}, "description": {"type": "string"}, "status": {"type": "string", "enum": ["backlog", "planned", "in-progress", "paused", "completed", "cancelled"]}, "start_date": {"type": "string", "format": "date"}, "target_date": {"type": "string", "format": "date"}}, ["project_id", "name"]),
-            _tool("plane_add_work_item_to_module", "Add an assigned/admin work item to a module.", {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "module_id": {"type": "string"}}, ["work_item_id", "module_id"]),
-            _tool("plane_remove_work_item_from_module", "Remove an assigned/admin work item from a module.", {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "module_id": {"type": "string"}}, ["work_item_id", "module_id"]),
+            _tool(
+                "plane_list_cycles", "List active project cycles.", {"project_id": {"type": "string"}}, ["project_id"]
+            ),
+            _tool(
+                "plane_create_cycle",
+                "Create a project cycle. Admin required.",
+                {
+                    "project_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "start_date": {"type": "string", "format": "date-time"},
+                    "end_date": {"type": "string", "format": "date-time"},
+                },
+                ["project_id", "name"],
+            ),
+            _tool(
+                "plane_add_work_item_to_cycle",
+                "Add an assigned/admin work item to a cycle.",
+                {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "cycle_id": {"type": "string"}},
+                ["work_item_id", "cycle_id"],
+            ),
+            _tool(
+                "plane_remove_work_item_from_cycle",
+                "Remove an assigned/admin work item from a cycle.",
+                {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "cycle_id": {"type": "string"}},
+                ["work_item_id", "cycle_id"],
+            ),
+            _tool(
+                "plane_list_modules", "List active project modules.", {"project_id": {"type": "string"}}, ["project_id"]
+            ),
+            _tool(
+                "plane_create_module",
+                "Create a project module. Admin required.",
+                {
+                    "project_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["backlog", "planned", "in-progress", "paused", "completed", "cancelled"],
+                    },
+                    "start_date": {"type": "string", "format": "date"},
+                    "target_date": {"type": "string", "format": "date"},
+                },
+                ["project_id", "name"],
+            ),
+            _tool(
+                "plane_add_work_item_to_module",
+                "Add an assigned/admin work item to a module.",
+                {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "module_id": {"type": "string"}},
+                ["work_item_id", "module_id"],
+            ),
+            _tool(
+                "plane_remove_work_item_from_module",
+                "Remove an assigned/admin work item from a module.",
+                {"project_id": {"type": "string"}, "work_item_id": {"type": "string"}, "module_id": {"type": "string"}},
+                ["work_item_id", "module_id"],
+            ),
+            _tool(
+                "mesh_get_me",
+                "Return the authenticated Human/Agent Mesh identity and default execution profile. Never returns secrets.",
+                {},
+            ),
+            _tool(
+                "mesh_list_project_roles",
+                "List project functional roles and capabilities used for Agent handoff.",
+                {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}},
+                ["project_id"],
+            ),
+            _tool(
+                "mesh_get_policy",
+                "Read the latest published Mesh Project Policy. Agents cannot publish Policy through MCP.",
+                {"project_id": {"type": "string", "description": "Project id from plane_list_projects."}},
+                ["project_id"],
+            ),
+            _tool(
+                "mesh_list_eligible_agents",
+                "List active project Agent members eligible for one or more functional roles and required capabilities.",
+                {
+                    "project_id": {"type": "string", "description": "Project id from plane_list_projects."},
+                    "role": {"type": "string", "description": "One role key from mesh_list_project_roles."},
+                    "roles": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Role keys from mesh_list_project_roles.",
+                    },
+                    "required_capabilities": {"type": "array", "items": {"type": "string"}},
+                },
+                ["project_id"],
+            ),
+            _tool(
+                "mesh_list_skills",
+                "List project Skills and published versions.",
+                {"project_id": {"type": "string"}},
+                ["project_id"],
+            ),
+            _tool(
+                "mesh_get_skill",
+                "Read one published SKILL.md by id or slug.",
+                {"project_id": {"type": "string"}, "skill_id": {"type": "string"}},
+                ["project_id", "skill_id"],
+            ),
+            _tool(
+                "mesh_submit_skill",
+                "Submit a strict SKILL.md version for Human Project Admin review.",
+                {"project_id": {"type": "string"}, "source_text": {"type": "string"}},
+                ["project_id", "source_text"],
+            ),
+            _tool(
+                "mesh_search_knowledge",
+                "Search project Markdown knowledge and return versioned Page citations.",
+                {
+                    "project_id": {"type": "string"},
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+                ["project_id", "query"],
+            ),
+            _tool(
+                "mesh_get_loop",
+                "Get the latest published LoopDefinition YAML and graph by slug.",
+                {"project_id": {"type": "string"}, "slug": {"type": "string"}},
+                ["project_id", "slug"],
+            ),
+            _tool("mesh_list_runs", "List project Loop runs.", {"project_id": {"type": "string"}}, ["project_id"]),
+            _tool(
+                "mesh_get_run",
+                "Get one Loop run with stages, actual Agent, provider, model, usage, cost, and evidence.",
+                {"project_id": {"type": "string"}, "run_id": {"type": "string"}},
+                ["project_id", "run_id"],
+            ),
+            _tool(
+                "mesh_assign_stage",
+                "Assign or leave a Loop stage unassigned. Caller must be the previous Agent, a PM Agent, or Project Admin. target_agent_id must come from mesh_list_eligible_agents.",
+                {
+                    "project_id": {"type": "string"},
+                    "stage_run_id": {"type": "string"},
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "Optional canonical Agent id. Omit to leave the Work Item unassigned.",
+                    },
+                },
+                ["project_id", "stage_run_id"],
+            ),
+            _tool(
+                "mesh_handoff_work_item",
+                "Handoff the current Work Item stage to an eligible Agent. Alias of mesh_assign_stage for workflow-oriented clients.",
+                {
+                    "project_id": {"type": "string"},
+                    "stage_run_id": {"type": "string"},
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "Optional canonical Agent id from mesh_list_eligible_agents.",
+                    },
+                },
+                ["project_id", "stage_run_id"],
+            ),
+            _tool(
+                "mesh_complete_stage",
+                "Complete the Stage assigned to the authenticated Agent and submit structured Evidence.",
+                {
+                    "stage_run_id": {"type": "string", "description": "Stage id from mesh_get_run."},
+                    "outcome": {"type": "string", "enum": ["succeeded", "failed"]},
+                    "evidence": {"type": "array", "items": {"type": "object"}},
+                    "selected_next_node_id": {
+                        "type": "string",
+                        "description": "Required only when a Gate has multiple outgoing transitions.",
+                    },
+                },
+                ["stage_run_id", "evidence"],
+            ),
         ]
         if self.workspace_member.role < ROLE_ADMIN:
-            admin_only = {"plane_add_project_member", "plane_add_workspace_user_to_project", "plane_create_cycle", "plane_create_module"}
+            admin_only = {
+                "plane_add_project_member",
+                "plane_add_workspace_user_to_project",
+                "plane_create_cycle",
+                "plane_create_module",
+            }
             tools = [tool for tool in tools if tool["name"] not in admin_only]
         return tools
 
@@ -1115,9 +1890,13 @@ class PlaneNativeMcpService:
     def _state(self, project: Project, value: str) -> State:
         state = State.objects.filter(project=project, pk=value).first() if _looks_like_uuid(value) else None
         if state is None:
-            state = State.objects.filter(project=project, name__iexact=value, is_triage=False).order_by("sequence").first()
+            state = (
+                State.objects.filter(project=project, name__iexact=value, is_triage=False).order_by("sequence").first()
+            )
         if state is None:
-            state = State.objects.filter(project=project, group__iexact=value, is_triage=False).order_by("sequence").first()
+            state = (
+                State.objects.filter(project=project, group__iexact=value, is_triage=False).order_by("sequence").first()
+            )
         if state is None:
             raise McpToolError(
                 f"unknown state/status: {value}",
@@ -1384,7 +2163,9 @@ def _compact_state(state: State) -> dict[str, Any]:
 
 
 def _compact_issue(issue: Issue, *, detailed: bool = False) -> dict[str, Any]:
-    assignees = [{"id": str(user.id), "display_name": user.display_name, "email": user.email} for user in issue.assignees.all()]
+    assignees = [
+        {"id": str(user.id), "display_name": user.display_name, "email": user.email} for user in issue.assignees.all()
+    ]
     labels = [
         _compact_label(label)
         for label in Label.objects.filter(label_issue__issue=issue, label_issue__deleted_at__isnull=True).distinct()
@@ -1507,6 +2288,48 @@ def _compact_activity(activity: IssueActivity) -> dict[str, Any]:
         "actor": _compact_user(activity.actor) if activity.actor else None,
         "created_at": activity.created_at,
         "epoch": activity.epoch,
+    }
+
+
+def _compact_mesh_run(run: MeshLoopRun) -> dict[str, Any]:
+    return {
+        "id": str(run.id),
+        "work_item_id": str(run.work_item_id),
+        "work_item_name": run.work_item.name,
+        "definition_id": str(run.definition_id),
+        "definition_slug": run.definition.slug,
+        "definition_version": run.definition_version,
+        "status": run.status,
+        "current_node_id": run.current_node_id,
+        "started_at": run.started_at,
+        "completed_at": run.completed_at,
+    }
+
+
+def _compact_mesh_stage(stage: MeshStageRun) -> dict[str, Any]:
+    attempts = MeshRunAttempt.objects.filter(stage_run=stage, deleted_at__isnull=True).select_related("agent")
+    return {
+        "id": str(stage.id),
+        "node_id": stage.node_id,
+        "objective": stage.objective,
+        "status": stage.status,
+        "assigned_agent_id": stage.assigned_agent.agent_id if stage.assigned_agent else None,
+        "attempts": [
+            {
+                "id": str(attempt.id),
+                "agent_id": attempt.agent.agent_id,
+                "provider": attempt.provider,
+                "model": attempt.model,
+                "configuration_version": attempt.configuration_version,
+                "status": attempt.status,
+                "input_tokens": attempt.input_tokens,
+                "output_tokens": attempt.output_tokens,
+                "cost": str(attempt.cost),
+                "latency_ms": attempt.latency_ms,
+                "evidence": attempt.evidence,
+            }
+            for attempt in attempts
+        ],
     }
 
 

@@ -1,0 +1,45 @@
+services:
+  mesh-legacy-orchestrator:
+    container_name: mesh-legacy-orchestrator
+    build:
+      context: .
+      dockerfile: Dockerfile.mesh
+    restart: unless-stopped
+    env_file:
+      - .env.mesh
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+    volumes:
+      - mesh_legacy_data:/data
+    ports:
+      - "127.0.0.1:8081:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - plane
+
+  mesh-legacy-timeout-worker:
+    container_name: mesh-legacy-timeout-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.mesh
+    restart: unless-stopped
+    command: ["python", "-m", "agentpm.timeout_worker"]
+    env_file:
+      - .env.mesh
+    volumes:
+      - mesh_legacy_data:/data
+    networks:
+      - plane
+    depends_on:
+      mesh-legacy-orchestrator:
+        condition: service_healthy
+
+volumes:
+  mesh_legacy_data:
+
+networks:
+  plane:
+    name: plane_default
+    external: true

@@ -10,8 +10,9 @@ Usage: scripts/register_plane_native_mcp_openclaw.sh [--dry-run] [mcp-url]
 
 Registers Plane's built-in MCP endpoint through a local secret-loading stdio proxy.
 The OpenClaw config stores the agent id and URL, but never the Plane API token.
-For a remote deployment, set AGENTPM_PLANE_AGENT_ENV_FILE to a dedicated ignored
-file such as .agentpm/plane-agent-env.remote.sh and AGENTPM_SKIP_PLANE_SEED=1.
+For a remote deployment, set MESH_PLANE_AGENT_ENV_FILE to a dedicated ignored
+file such as .agentpm/plane-agent-env.remote.sh and MESH_SKIP_PLANE_SEED=1.
+Matching AGENTPM_* names remain compatibility fallbacks for one release.
 EOF
 }
 
@@ -22,14 +23,14 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then usage; exit 0; fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 CLI not found" >&2; exit 1; }
 if [ "$DRY_RUN" -eq 0 ]; then
   command -v openclaw >/dev/null 2>&1 || { echo "openclaw CLI not found" >&2; exit 1; }
-  if [ "${AGENTPM_SKIP_PLANE_SEED:-0}" != "1" ]; then
+  if [ "${MESH_SKIP_PLANE_SEED:-${AGENTPM_SKIP_PLANE_SEED:-0}}" != "1" ]; then
     eval "$(./scripts/seed_plane_mvp.sh | /usr/bin/grep '^export ')"
     eval "$(./scripts/seed_plane_agents.sh | /usr/bin/grep '^export ')"
   fi
 fi
 
-ENV_FILE="${AGENTPM_PLANE_AGENT_ENV_FILE:-$ROOT_DIR/.agentpm/plane-agent-env.sh}"
-AGENT_ID="${AGENTPM_MCP_AGENT_ID:-hekate}"
+ENV_FILE="${MESH_PLANE_AGENT_ENV_FILE:-${AGENTPM_PLANE_AGENT_ENV_FILE:-$ROOT_DIR/.agentpm/plane-agent-env.sh}}"
+AGENT_ID="${MESH_MCP_AGENT_ID:-${AGENTPM_MCP_AGENT_ID:-hekate}}"
 SERVER_NAME="plane-native-$AGENT_ID"
 PLANE_API_BASE_URL="${PLANE_API_BASE_URL:-http://127.0.0.1:8000}"
 PLANE_WORKSPACE_SLUG="${PLANE_WORKSPACE_SLUG:-agentpm}"
@@ -45,6 +46,7 @@ ARGS=(
   --timeout 20
   --connect-timeout 20
   --include 'plane_*'
+  --include 'mesh_*'
 )
 
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -58,6 +60,6 @@ openclaw mcp add "$SERVER_NAME" "${ARGS[@]}"
 openclaw mcp reload >/dev/null 2>&1 || true
 openclaw mcp probe "$SERVER_NAME" --json
 
-if [ "${AGENTPM_SKIP_SKILL_INSTALL:-0}" != "1" ]; then
+if [ "${MESH_SKIP_SKILL_INSTALL:-${AGENTPM_SKIP_SKILL_INSTALL:-0}}" != "1" ]; then
   ./scripts/install_plane_agent_skill.sh --openclaw-only
 fi

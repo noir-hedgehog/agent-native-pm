@@ -1,10 +1,10 @@
-# Agent Guide: Plane + MCP
+# Mesh Agent Guide: Console + MCP
 
-This page is the operating guide for agents working in the AgentPM Plane workspace through Plane-native MCP.
+This page is the operating guide for Human and Agent members working in Mesh Console through Plane-native MCP.
 
 ## Skill First
 
-Agents should use the `agentpm-plane-workflow` skill before calling Plane MCP tools. The skill standardizes context gathering, canonical id selection, and error recovery.
+Agents should use the `mesh-plane-workflow` Skill before calling MCP tools. It standardizes identity checks, project context, explicit handoff, canonical ids, and error recovery.
 
 Install or refresh it locally:
 
@@ -14,8 +14,9 @@ Install or refresh it locally:
 
 Plane-native MCP also exposes the same guidance through:
 
-- Prompt: `agentpm_plane_workflow`
-- Resource: `agentpm://skills/agentpm-plane-workflow/SKILL.md`
+- Prompt: `mesh_plane_workflow`
+- Resource: `mesh://skills/mesh-plane-workflow/SKILL.md`
+- Compatibility aliases for `agentpm_plane_workflow` remain for one release.
 
 ## Identity
 
@@ -49,14 +50,14 @@ http://100.79.187.62:8080/api/v1/workspaces/agentpm/mcp/
 Register a Plane-native MCP server for one agent identity:
 
 ```bash
-AGENTPM_MCP_AGENT_ID=iris ./scripts/register_plane_native_mcp_openclaw.sh
+MESH_MCP_AGENT_ID=iris ./scripts/register_plane_native_mcp_openclaw.sh
 openclaw mcp probe plane-native-iris --json
 ```
 
 Register against a Tailscale URL:
 
 ```bash
-AGENTPM_MCP_AGENT_ID=iris \
+MESH_MCP_AGENT_ID=iris \
   ./scripts/register_plane_native_mcp_openclaw.sh \
   http://uriahmac-mini.tail3b7a05.ts.net/api/v1/workspaces/agentpm/mcp/
 ```
@@ -69,7 +70,9 @@ AGENTPM_MCP_AGENT_ID=iris \
 - Assignments only target active project members with role Member or Admin.
 - Admin can add an existing registered bot agent to a project. MCP does not invite new workspace users.
 
-Default AgentPM seed roles:
+Functional roles such as PM, Developer, Tester, Reviewer, and Observer are selected separately on the project Members page. A member may hold several functional roles; these never increase the member's Admin/Member/Guest project permission.
+
+Legacy seed identities:
 
 - Hekate: Admin / coordinator.
 - Iris: Member / worker.
@@ -118,6 +121,23 @@ The OpenClaw tool name is prefixed by the server name, for example `plane-native
 - `plane_add_work_item_to_module`
 - `plane_remove_work_item_from_module`
 
+Mesh-native tools:
+
+- `mesh_get_me`
+- `mesh_list_project_roles`
+- `mesh_list_eligible_agents`
+- `mesh_get_policy`
+- `mesh_list_skills`
+- `mesh_get_skill`
+- `mesh_submit_skill`
+- `mesh_search_knowledge`
+- `mesh_get_loop`
+- `mesh_list_runs`
+- `mesh_get_run`
+- `mesh_assign_stage`
+- `mesh_handoff_work_item`
+- `mesh_complete_stage`
+
 ## Common Workflows
 
 Read your identity:
@@ -153,6 +173,18 @@ plane_list_work_item_activity(work_item_id)
 plane_list_work_item_links(work_item_id)
 plane_list_work_item_relations(work_item_id)
 ```
+
+Work in a Mesh Loop:
+
+```text
+mesh_get_me
+mesh_get_run(project_id, run_id)
+mesh_list_project_roles(project_id)
+mesh_list_eligible_agents(project_id, roles, required_capabilities)
+mesh_handoff_work_item(project_id, stage_run_id, target_agent_id)
+```
+
+The next executor is always chosen explicitly by the previous Agent, a PM Agent, or a Human Project Admin. If no Agent is selected, omit `target_agent_id`: Plane shows the card as Unassigned and Mesh records `waiting_for_assignee` without changing the business state to blocked.
 
 Update assigned work:
 

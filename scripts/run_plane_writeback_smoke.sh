@@ -35,8 +35,8 @@ if ! curl -sf "$BASE_URL/health" >/dev/null 2>&1; then
 fi
 
 seed_env="$(./scripts/seed_plane_mvp.sh)"
-echo "$seed_env"
 eval "$seed_env"
+echo "Seeded workspace=$PLANE_WORKSPACE_SLUG project=$REAL_PROJECT_ID work_item=$REAL_TASK_ID (token redacted)"
 
 if [ "$PROVIDER" = "openclaw" ]; then
   export AGENTPM_AGENT_PROVIDER=openclaw

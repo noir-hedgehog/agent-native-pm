@@ -1,5 +1,13 @@
 # Changelog
 
+## mesh-v0.1.0 - unreleased
+
+- Rename the public AGPL project to Mesh and import the customized Plane CE Console as a subtree.
+- Add PostgreSQL-backed Agent identity, execution profiles, functional roles, Project Policy, Skill, Knowledge, and Loop runtime models.
+- Add strict Page source formats, SKILL.md and Loop YAML contracts, explicit eligible-Agent handoff, and unassigned waiting semantics.
+- Add Mesh-native MCP discovery, Policy, Skill, Knowledge, Loop, run, and stage-assignment tools while retaining `plane_*` compatibility.
+- Add dedicated `mesh-runner` and `mesh-indexer` Celery queues and preserve Plane CE attribution and source availability.
+
 ## 0.2.0 - 2026-07-13
 
 - Add production AgentPM containers, durable SQLite storage, health checks, structured logs, timeout worker, deployment, rollback, and backup tooling.

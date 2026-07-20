@@ -38,7 +38,7 @@ export function WorkspaceMemberTokenModal(props: Props) {
   const key = memberTokenKey(workspaceSlug, member.member.id);
 
   const { data: tokens, isLoading } = useSWR(isOpen ? key : null, () =>
-    workspaceService.listWorkspaceMemberApiTokens(workspaceSlug, member.member.id)
+    workspaceService.listWorkspaceMemberApiTokens(workspaceSlug, member.member.id),
   );
 
   const handleClose = () => {
@@ -53,7 +53,7 @@ export function WorkspaceMemberTokenModal(props: Props) {
     await workspaceService
       .createWorkspaceMemberApiToken(workspaceSlug, member.member.id, {
         ...data,
-        label: data.label || `AgentPM ${member.member.display_name} MCP`,
+        label: data.label || `Mesh ${member.member.display_name} MCP`,
       })
       .then((res: IApiToken) => {
         setGeneratedToken(res);
@@ -90,9 +90,17 @@ export function WorkspaceMemberTokenModal(props: Props) {
   };
 
   return (
-    <ModalCore isOpen={isOpen} handleClose={handleClose} position={EModalPosition.TOP} width={EModalWidth.XXL}>
+    <ModalCore
+      isOpen={isOpen}
+      handleClose={handleClose}
+      position={EModalPosition.TOP}
+      width={EModalWidth.XXL}
+    >
       {generatedToken ? (
-        <GeneratedTokenDetails handleClose={() => setGeneratedToken(null)} tokenDetails={generatedToken} />
+        <GeneratedTokenDetails
+          handleClose={() => setGeneratedToken(null)}
+          tokenDetails={generatedToken}
+        />
       ) : (
         <div className="divide-y divide-subtle">
           <div className="space-y-1 p-5">

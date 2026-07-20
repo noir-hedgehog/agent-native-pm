@@ -33,7 +33,7 @@ import interVariableWoff2 from "@fontsource-variable/inter/files/inter-latin-wgh
 import "@fontsource/material-symbols-rounded";
 import "@fontsource/ibm-plex-mono";
 
-const APP_TITLE = "Plane | Simple, extensible, open-source project management tool.";
+const APP_TITLE = "Mesh Console | Agent-native collaboration";
 
 export const links: LinksFunction = () => [
   { rel: "icon", type: "image/png", sizes: "32x32", href: favicon32 },
@@ -76,7 +76,10 @@ export function Layout({ children }: { children: ReactNode }) {
       <body suppressHydrationWarning>
         <div id="context-menu-portal" />
         <div id="editor-portal" />
-        <ThemeProvider themes={["light", "dark", "light-contrast", "dark-contrast", "custom"]} defaultTheme="system">
+        <ThemeProvider
+          themes={["light", "dark", "light-contrast", "dark-contrast", "custom"]}
+          defaultTheme="system"
+        >
           {children}
         </ThemeProvider>
         <Scripts />
@@ -100,7 +103,8 @@ export const meta: Route.MetaFunction = () => [
   { property: "og:title", content: APP_TITLE },
   {
     property: "og:description",
-    content: "Open-source project management tool to manage work items, cycles, and product roadmaps easily",
+    content:
+      "Open-source project management tool to manage work items, cycles, and product roadmaps easily",
   },
   { property: "og:url", content: "https://app.plane.so/" },
   { property: "og:image", content: ogImage },
@@ -123,7 +127,12 @@ export const meta: Route.MetaFunction = () => [
 export default function Root() {
   return (
     <AppProvider>
-      <div className={cn("relative flex h-screen w-full flex-col overflow-hidden bg-canvas", "desktop-app-container")}>
+      <div
+        className={cn(
+          "relative flex h-screen w-full flex-col overflow-hidden bg-canvas",
+          "desktop-app-container",
+        )}
+      >
         <main className="relative h-full w-full overflow-hidden">
           <Outlet />
         </main>

@@ -23,10 +23,43 @@ from plane.app.views import (
     AgentPolicyEndpoint,
     AgentPolicyHistoryEndpoint,
     AgentPolicyRuntimeEndpoint,
+    MeshEligibleAgentsEndpoint,
+    MeshKnowledgeSearchEndpoint,
+    MeshLoopPublishEndpoint,
+    MeshLoopStartEndpoint,
+    MeshApprovalsEndpoint,
+    MeshLoopsEndpoint,
+    MeshMemberRolesEndpoint,
+    MeshProjectPolicyEndpoint,
+    MeshProjectRolesEndpoint,
+    MeshRunsEndpoint,
+    MeshSkillPublishEndpoint,
+    MeshSkillsEndpoint,
+    MeshStageAssignmentEndpoint,
 )
 
 
 urlpatterns = [
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/loops/<uuid:loop_id>/start/",
+        MeshLoopStartEndpoint.as_view(),
+        name="mesh-loop-start",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/approvals/",
+        MeshApprovalsEndpoint.as_view(),
+        name="mesh-approvals",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/approvals/<uuid:approval_id>/",
+        MeshApprovalsEndpoint.as_view(),
+        name="mesh-approval-detail",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/policy/",
+        MeshProjectPolicyEndpoint.as_view(),
+        name="mesh-project-policy",
+    ),
     path(
         "workspaces/<str:slug>/projects/",
         ProjectViewSet.as_view({"get": "list", "post": "create"}),
@@ -108,6 +141,61 @@ urlpatterns = [
         "workspaces/<str:slug>/projects/<uuid:project_id>/agent-policy/approvals/<str:approval_id>/",
         AgentPolicyApprovalEndpoint.as_view(),
         name="project-agent-policy-approval",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/roles/",
+        MeshProjectRolesEndpoint.as_view(),
+        name="mesh-project-roles",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/members/<uuid:project_member_id>/roles/",
+        MeshMemberRolesEndpoint.as_view(),
+        name="mesh-member-roles",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/eligible-agents/",
+        MeshEligibleAgentsEndpoint.as_view(),
+        name="mesh-eligible-agents",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/skills/",
+        MeshSkillsEndpoint.as_view(),
+        name="mesh-skills",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/skills/versions/<uuid:version_id>/publish/",
+        MeshSkillPublishEndpoint.as_view(),
+        name="mesh-skill-publish",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/knowledge/search/",
+        MeshKnowledgeSearchEndpoint.as_view(),
+        name="mesh-knowledge-search",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/loops/",
+        MeshLoopsEndpoint.as_view(),
+        name="mesh-loops",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/loops/<uuid:loop_id>/publish/",
+        MeshLoopPublishEndpoint.as_view(),
+        name="mesh-loop-publish",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/stages/<uuid:stage_run_id>/assign/",
+        MeshStageAssignmentEndpoint.as_view(),
+        name="mesh-stage-assign",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/runs/",
+        MeshRunsEndpoint.as_view(),
+        name="mesh-runs",
+    ),
+    path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/runs/<uuid:loop_run_id>/",
+        MeshRunsEndpoint.as_view(),
+        name="mesh-run-detail",
     ),
     path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/members/<uuid:pk>/",

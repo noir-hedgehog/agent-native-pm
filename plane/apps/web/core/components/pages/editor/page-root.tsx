@@ -8,7 +8,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { observer } from "mobx-react";
 // plane imports
 import type { CollaborationState, EditorRefApi } from "@plane/editor";
-import type { TDocumentPayload, TPage, TPageVersion, TWebhookConnectionQueryParams } from "@plane/types";
+import type {
+  TDocumentPayload,
+  TPage,
+  TPageVersion,
+  TWebhookConnectionQueryParams,
+} from "@plane/types";
 // hooks
 import { usePageFallback } from "@/hooks/use-page-fallback";
 // plane web import
@@ -26,6 +31,7 @@ import { ContentLimitBanner } from "./content-limit-banner";
 import { PageEditorBody } from "./editor-body";
 import type { TEditorBodyConfig, TEditorBodyHandlers } from "./editor-body";
 import { PageEditorToolbarRoot } from "./toolbar";
+import { PageSourceEditor, PageSourceFormatSwitcher } from "./source-editor";
 
 export type TPageRootHandlers = {
   create: (payload: Partial<TPage>) => Promise<Partial<TPage> | undefined>;
@@ -87,7 +93,7 @@ export const PageRoot = observer(function PageRoot(props: TPageRootProps) {
         setEditorRef(editorRef.current);
       }
     },
-    [page.editor.editorRef, setEditorRef]
+    [page.editor.editorRef, setEditorRef],
   );
 
   useEffect(() => {
@@ -142,7 +148,7 @@ export const PageRoot = observer(function PageRoot(props: TPageRootProps) {
       editorRef.current?.clearEditor();
       editorRef.current?.setEditorValue(descriptionHTML);
     },
-    [editorRef]
+    [editorRef],
   );
 
   // reset editor ref on unmount
@@ -150,7 +156,7 @@ export const PageRoot = observer(function PageRoot(props: TPageRootProps) {
     () => () => {
       setEditorRef(null);
     },
-    [setEditorRef]
+    [setEditorRef],
   );
 
   return (
@@ -169,25 +175,30 @@ export const PageRoot = observer(function PageRoot(props: TPageRootProps) {
           isNavigationPaneOpen={isNavigationPaneOpen}
           page={page}
         />
+        <PageSourceFormatSwitcher page={page} />
         {showContentTooLargeBanner && <ContentLimitBanner className="px-page-x" />}
-        <PageEditorBody
-          config={config}
-          customRealtimeEventHandlers={mergedCustomEventHandlers}
-          editorReady={editorReady}
-          editorForwardRef={editorRef}
-          handleEditorReady={handleEditorReady}
-          handleOpenNavigationPane={handleOpenNavigationPane}
-          handlers={handlers}
-          isNavigationPaneOpen={isNavigationPaneOpen}
-          page={page}
-          projectId={projectId}
-          storeType={storeType}
-          webhookConnectionParams={webhookConnectionParams}
-          workspaceSlug={workspaceSlug}
-          extendedEditorProps={extendedEditorProps}
-          isFetchingFallbackBinary={isFetchingFallbackBinary}
-          onCollaborationStateChange={setCollaborationState}
-        />
+        {page.source_format === "rich_text" ? (
+          <PageEditorBody
+            config={config}
+            customRealtimeEventHandlers={mergedCustomEventHandlers}
+            editorReady={editorReady}
+            editorForwardRef={editorRef}
+            handleEditorReady={handleEditorReady}
+            handleOpenNavigationPane={handleOpenNavigationPane}
+            handlers={handlers}
+            isNavigationPaneOpen={isNavigationPaneOpen}
+            page={page}
+            projectId={projectId}
+            storeType={storeType}
+            webhookConnectionParams={webhookConnectionParams}
+            workspaceSlug={workspaceSlug}
+            extendedEditorProps={extendedEditorProps}
+            isFetchingFallbackBinary={isFetchingFallbackBinary}
+            onCollaborationStateChange={setCollaborationState}
+          />
+        ) : (
+          <PageSourceEditor page={page} projectId={projectId} />
+        )}
       </div>
       <PageNavigationPaneRoot
         storeType={storeType}

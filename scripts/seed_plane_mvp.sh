@@ -11,12 +11,17 @@ fi
 
 cd "$PLANE_DIR"
 
-DOCKER=(docker)
-if ! docker info >/dev/null 2>&1; then
-  DOCKER=(sudo docker)
+if [ "$(docker inspect -f '{{.State.Running}}' api 2>/dev/null || true)" = "true" ]; then
+  API_EXEC=(docker exec -i api)
+else
+  DOCKER=(docker)
+  if ! docker info >/dev/null 2>&1; then
+    DOCKER=(sudo docker)
+  fi
+  API_EXEC=("${DOCKER[@]}" compose -f docker-compose.yml exec -T api)
 fi
 
-"${DOCKER[@]}" compose -f docker-compose.yml exec -T api python manage.py shell <<'PY'
+"${API_EXEC[@]}" python manage.py shell <<'PY'
 from plane.db.models import (
     APIToken,
     Issue,

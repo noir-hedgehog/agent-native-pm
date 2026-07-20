@@ -19,13 +19,16 @@ require_cmd curl
 require_cmd python3
 require_cmd docker
 
-step "Plane service"
+step "Mesh Console service"
 if ! docker info >/dev/null 2>&1; then
   echo "Docker daemon is not running. Start Docker Desktop, then rerun this script." >&2
   exit 1
 fi
 
-./scripts/plane_service.sh backend
+./scripts/init_mesh_console_env.sh
+if ! curl -sf http://127.0.0.1:8000/ >/dev/null 2>&1; then
+  ./scripts/plane_service.sh backend
+fi
 for _ in {1..60}; do
   if curl -sf http://127.0.0.1:8000/ >/tmp/agentpm-plane-api-health; then
     break
@@ -49,7 +52,7 @@ fi
 step "Python tests"
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 
-step "AgentPM local smoke"
+step "Mesh compatibility smoke"
 ./scripts/run_local_smoke.sh
 
 step "OpenClaw connector smoke"
@@ -64,5 +67,5 @@ step "OpenClaw connector with real Plane write-back"
 step "Hermes connector with real Plane write-back"
 ./scripts/run_plane_writeback_smoke.sh hermes
 
-step "MVP verification complete"
-echo "Plane API, AgentPM dev path, OpenClaw/Hermes connector paths, and real Plane write-back verified."
+step "Mesh verification complete"
+echo "Mesh Console API, compatibility path, connector paths, and real Plane write-back verified."

@@ -63,5 +63,15 @@ from .user import UserEndpoint
 from .invite import WorkspaceInvitationsViewset
 
 from .mcp import PlaneNativeMcpEndpoint
+from .mesh import (
+    MeshEligibleAgentsAPIEndpoint,
+    MeshKnowledgeSearchAPIEndpoint,
+    MeshLoopsAPIEndpoint,
+    MeshProjectPolicyAPIEndpoint,
+    MeshProjectRolesAPIEndpoint,
+    MeshRunsAPIEndpoint,
+    MeshSkillsAPIEndpoint,
+    MeshWorkspaceEndpoint,
+)
 
 from .sticky import StickyViewSet
