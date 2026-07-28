@@ -1,11 +1,20 @@
 ---
 name: mesh-plane-workflow
-description: Use when an agent works with Plane through Mesh Plane-native MCP, especially to choose project/member/state ids, create or update work items, add project members, or recover from MCP tool errors.
+version: 0.2.0
+description: Use when an agent works with the production Mesh Console through Plane-native MCP, especially to discover project Policy, Skills, Knowledge, members and states; create or update work items; hand off Loop stages; or recover from MCP errors.
 ---
 
 # Mesh Plane Workflow
 
 Plane-native MCP is a strict workflow facade. Your identity comes from the MCP server token (`X-Api-Key`). Do not pass `agent_id` to Plane-native MCP tools.
+
+## Environment
+
+- Production is the source of truth: `http://100.79.187.62:8080/`.
+- The production MCP endpoint is `http://100.79.187.62:8080/api/v1/workspaces/agentpm/mcp/`.
+- Use the configured `mesh_production` or compatibility `agentpm_plane` MCP server.
+- Do not write to `127.0.0.1` unless the user explicitly asks for local development or testing.
+- Never copy Plane API tokens into prompts, Skill content, logs, work items, or comments.
 
 ## Required Context Flow
 
@@ -14,7 +23,9 @@ Plane-native MCP is a strict workflow facade. Your identity comes from the MCP s
 3. Call `plane_list_project_members(project_id)`. Use returned `agent_id` values for `target_agent_id` and `member_agent_id`.
 4. Call `plane_list_states(project_id)` before passing `state` or `status`.
 5. Call `plane_list_work_item_kinds(project_id)` before passing `work_item_kind`.
-6. For assigned work, call `plane_get_work_item` or `plane_summarize_work_item` before updating.
+6. Call `mesh_get_policy(project_id)` before delegating or starting a Loop stage.
+7. Call `mesh_list_skills(project_id)` and `mesh_search_knowledge(project_id, query)` when project SOP or context is relevant.
+8. For assigned work, call `plane_get_work_item` or `plane_summarize_work_item` before updating.
 
 ## Parameter Rules
 
@@ -32,10 +43,12 @@ Plane-native MCP is a strict workflow facade. Your identity comes from the MCP s
 Discover Mesh context before delegating:
 
 1. `mesh_get_me`
-2. `mesh_list_project_roles(project_id)`
-3. `mesh_list_eligible_agents(project_id, roles, required_capabilities)`
-4. `mesh_list_skills(project_id)` and `mesh_search_knowledge(project_id, query)` as needed
-5. `mesh_assign_stage(project_id, stage_run_id, target_agent_id)` with an eligible short Agent id
+2. `mesh_get_policy(project_id)`
+3. `mesh_list_project_roles(project_id)`
+4. `mesh_list_eligible_agents(project_id, roles, required_capabilities)`
+5. `mesh_list_skills(project_id)` and `mesh_get_skill(project_id, skill_slug)`
+6. `mesh_search_knowledge(project_id, query)` and preserve returned Page/version/heading citations
+7. `mesh_assign_stage(project_id, stage_run_id, target_agent_id)` with an eligible short Agent id
 
 Loop stages define objectives, evidence, roles, and policy boundaries. They do not prescribe which Skill, knowledge query, model, or internal reasoning steps an Agent must use.
 

@@ -9,10 +9,12 @@ from django.views.decorators.http import require_GET
 
 @require_GET
 def mesh_index(request):
+    environment = os.environ.get("MESH_ENVIRONMENT", "development")
     return JsonResponse(
         {
             "name": "Mesh",
             "service": "mesh-console",
+            "environment": environment,
             "version": os.environ.get("MESH_VERSION", "development"),
             "based_on": "Plane Community Edition",
             "license": "AGPL-3.0-only",
@@ -25,4 +27,10 @@ def mesh_index(request):
 
 @require_GET
 def mesh_health(request):
-    return JsonResponse({"status": "ok", "service": "mesh-console"})
+    return JsonResponse(
+        {
+            "status": "ok",
+            "service": "mesh-console",
+            "environment": os.environ.get("MESH_ENVIRONMENT", "development"),
+        }
+    )

@@ -1,6 +1,9 @@
 # Production Deployment
 
-AgentPM runs as a separate container on the same Docker network as Plane. Plane's Caddy proxy exposes it under `/agentpm/`; Plane-native MCP remains under `/api/v1/workspaces/<slug>/mcp/`.
+Mesh runs inside the Plane Django API with dedicated `mesh-runner` and
+`mesh-indexer` Celery workers. Plane-native MCP remains under
+`/api/v1/workspaces/<slug>/mcp/`. The old standalone AgentPM/SQLite containers
+are retained only as rollback artifacts and remain stopped after migration.
 
 ## First deployment
 
@@ -10,7 +13,9 @@ AgentPM runs as a separate container on the same Docker network as Plane. Plane'
 ./scripts/install_openclaw_bridge.sh
 ```
 
-2. Deploy Plane and AgentPM. Deployment prepares ignored environment files, synchronizes the bridge credential, derives Plane state ids, and installs the signed assignment webhook without printing secrets:
+2. Deploy Mesh Console and its workers. Deployment prepares ignored environment
+files, synchronizes bridge credentials, and installs the signed assignment
+webhook without printing secrets:
 
 ```bash
 ./scripts/deploy_remote.sh --plane
@@ -20,7 +25,7 @@ AgentPM runs as a separate container on the same Docker network as Plane. Plane'
 
 ```bash
 ./scripts/check_remote.sh
-curl http://100.79.187.62:8080/agentpm/health
+curl http://100.79.187.62:8080/mesh/health/
 ```
 
 Use `--seed` only when initializing an empty Plane installation. Tokens and registry files remain under `.agentpm/` and are excluded from rsync and git. Policy publishing and approval decisions travel through Plane's authenticated Admin API proxy; direct `/agentpm/` write methods are blocked by Caddy.
@@ -45,10 +50,15 @@ Deployment installs `agentpm-backup.timer`, which runs daily. Validate any backu
 
 A recovery exercise should restore into an isolated Docker project and verify Plane login, MCP identity, policy history, and AgentPM timeline before declaring the backup usable.
 
-Keep production Plane credentials separate from local seed credentials. Sync the ignored production map with
-`scripts/sync_remote_plane_agent_env.sh`, then register remote OpenClaw MCP servers with
-`AGENTPM_PLANE_AGENT_ENV_FILE=.agentpm/plane-agent-env.remote.sh` and
-`AGENTPM_SKIP_PLANE_SEED=1`. Never reuse `.agentpm/plane-agent-env.sh` for both environments.
+Keep production Plane credentials separate from local seed credentials. Codex
+loads `.agentpm/plane-agent-env.production.sh` through
+`scripts/mesh_production_mcp_stdio.sh`; OpenClaw may keep the compatibility
+filename `.agentpm/plane-agent-env.remote.sh`. Neither file is committed.
+
+Run `scripts/bootstrap_mesh_production.sh` after a data migration or new project
+seed. It idempotently publishes baseline Project Policies, installs the
+`mesh-plane-workflow` Skill, assigns default Agent functional roles, and indexes
+project Pages as cited Knowledge.
 
 ## Exposure policy
 

@@ -56,6 +56,7 @@ services:
       - ./apps/api/.env
     environment:
       MESH_VERSION: ${MESH_VERSION:-0.1.0}
+      MESH_ENVIRONMENT: ${MESH_ENVIRONMENT:-development}
       MESH_INTERNAL_URL: ${MESH_INTERNAL_URL:-http://api:8000}
       MESH_ADMIN_TOKEN: ${MESH_ADMIN_TOKEN:-}
       AGENTPM_INTERNAL_URL: ${AGENTPM_INTERNAL_URL:-http://agentpm:8080}

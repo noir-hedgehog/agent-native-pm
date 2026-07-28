@@ -41,6 +41,7 @@ docker compose -f plane/docker-compose.yml exec -T api python manage.py migrate
 ./scripts/seed_plane_mvp.sh
 ./scripts/seed_plane_agents.sh
 ./scripts/seed_plane_agent_guide_page.sh
+./scripts/bootstrap_mesh_production.sh
 ```
 
 Open [Mesh Console](http://127.0.0.1/). Service metadata and the AGPL source link are available at [http://127.0.0.1/mesh/](http://127.0.0.1/mesh/).
@@ -72,6 +73,24 @@ openclaw mcp probe plane-native-iris --json
 ```
 
 Existing `AGENTPM_MCP_AGENT_ID`, `plane_*` tools, the old Skill name, and its resource URI remain compatible for one release. Agent-native clients should adopt the `mesh_*` tools.
+
+## Production source of truth
+
+The shared production Console is available to the tailnet at
+`http://100.79.187.62:8080/`. Local `127.0.0.1` services are development-only.
+Set `MESH_ENVIRONMENT=production` on the shared host and leave the local default
+as `development`; both `/mesh/` and `/mesh/health/` report this value.
+
+Codex uses the secret-safe production wrapper without storing an API token in
+its config:
+
+```bash
+MESH_PLANE_AGENT_ENV_FILE=.agentpm/plane-agent-env.production.sh \
+  ./scripts/mesh_production_mcp_stdio.sh
+```
+
+The ignored environment file contains per-Agent Plane tokens. The repository
+Skill is installed with `./scripts/install_plane_agent_skill.sh --codex-only`.
 
 ## Tests
 
