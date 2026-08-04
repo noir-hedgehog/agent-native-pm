@@ -26,6 +26,7 @@ Plane-native MCP is a strict workflow facade. Your identity comes from the MCP s
 6. Call `mesh_get_policy(project_id)` before delegating or starting a Loop stage.
 7. Call `mesh_list_skills(project_id)` and `mesh_search_knowledge(project_id, query)` when project SOP or context is relevant.
 8. For assigned work, call `plane_get_work_item` or `plane_summarize_work_item` before updating.
+9. Call `mesh_get_loop(project_id, slug)` before starting or completing a Loop so required roles and Evidence are current.
 
 ## Parameter Rules
 
@@ -51,6 +52,20 @@ Discover Mesh context before delegating:
 7. `mesh_assign_stage(project_id, stage_run_id, target_agent_id)` with an eligible short Agent id
 
 Loop stages define objectives, evidence, roles, and policy boundaries. They do not prescribe which Skill, knowledge query, model, or internal reasoning steps an Agent must use.
+
+Run a Mesh Loop:
+
+1. A PM Agent or Project Admin calls `mesh_get_loop(project_id, slug)` and `mesh_start_loop(project_id, work_item_id, loop_slug)`.
+2. The first Stage remains Unassigned until PM/Admin calls `mesh_list_eligible_agents` and `mesh_assign_stage`.
+3. The assigned Agent reads the Work Item, latest Policy, relevant published Skills, and Knowledge citations.
+4. The assigned Agent performs only the current Stage objective in the Loop worktree.
+5. Call `mesh_complete_stage(stage_run_id, evidence, handoff_target_agent_id)` with every required Evidence key. Each item must contain `key`, `kind`, and `title`.
+6. Use `uri`, `summary`, and `metadata` for commit/test output and exact Skill version or Knowledge Page/version/heading references.
+7. `handoff_target_agent_id` must be an available eligible Agent returned for the next Stage. Omit it to leave the next Stage and Plane card Unassigned.
+8. Use `mesh_get_run(project_id, run_id)` to confirm actual Agent, provider/model, A2A state, Evidence, Handoff, or failure details.
+9. A PM Agent or Project Admin may call `mesh_cancel_run(project_id, run_id, reason)`; cancellation clears the Work Item assignee and requests provider cancellation.
+
+Never infer or silently select the next Agent. An unavailable or Policy-ineligible target remains Unassigned.
 
 Create work for an agent:
 
@@ -103,3 +118,5 @@ Important errors:
 - `not_assigned`: ask an Admin to assign the work item to you before writing.
 - `unknown_state`: call `plane_list_states(project_id)` and retry with a returned state.
 - `invalid_work_item_kind`: call `plane_list_work_item_kinds(project_id)` and retry with a returned kind.
+- `invalid_stage_completion`: compare submitted Evidence keys with `required_evidence` in `mesh_get_run`, then resubmit a complete strict Evidence array.
+- `target_not_eligible`: refresh Policy, roles, and `mesh_list_eligible_agents`; omit the target when no valid Agent is available.

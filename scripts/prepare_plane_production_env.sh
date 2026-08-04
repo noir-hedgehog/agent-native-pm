@@ -69,6 +69,8 @@ set_env "$api_env" ADMIN_BASE_URL "$external_url"
 set_env "$api_env" SPACE_BASE_URL "$external_url"
 set_env "$api_env" LIVE_BASE_URL "$external_url"
 set_env "$api_env" CORS_ALLOWED_ORIGINS "$external_url"
+set_env "$api_env" MESH_ENVIRONMENT "production"
+set_env "$api_env" MESH_RUNNER_AUTOSTART "1"
 
 if ! grep -q '^SECRET_KEY=' "$api_env"; then
   set_env "$api_env" SECRET_KEY "$(openssl rand -hex 32)"

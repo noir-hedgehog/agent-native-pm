@@ -36,6 +36,10 @@ app.conf.beat_schedule = {
         "task": "plane.license.bgtasks.tracer.instance_traces",
         "schedule": crontab(hour="*/6", minute=0),  # Every 6 hours
     },
+    "check-mesh-agent-heartbeats": {
+        "task": "plane.bgtasks.mesh_runner.alert_stale_mesh_attempts",
+        "schedule": crontab(minute="*/5"),
+    },
     # Occurs once every day
     "check-every-day-to-delete-hard-delete": {
         "task": "plane.bgtasks.deletion_task.hard_delete",

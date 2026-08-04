@@ -52,7 +52,7 @@ from plane.db.models import (
     MeshStageRun,
 )
 from plane.mesh.discovery import assign_stage, leave_stage_unassigned, list_eligible_agents
-from plane.mesh.runtime import complete_stage, queue_stage_start_on_commit
+from plane.mesh.runtime import cancel_loop, complete_stage, queue_stage_start_on_commit, start_loop
 from plane.mesh.skills import submit_skill_version
 from plane.utils.issue_relation_mapper import get_actual_relation
 
@@ -82,12 +82,18 @@ Before writing:
 2. Call `plane_list_projects` and choose the target `project_id`.
 3. Call `plane_list_project_members(project_id)` to find project members and canonical `agent_id` values.
 4. Call `plane_list_states(project_id)` before passing `state` or `status`.
+5. Call `mesh_get_policy`, `mesh_get_loop`, and `mesh_list_eligible_agents` before starting or assigning a Loop.
 
 Rules:
 - `target_agent_id` and `member_agent_id` must be short canonical agent ids such as `iris`, not Plane user UUIDs or emails.
 - If the target agent is not a project member, an Admin should call `plane_add_project_member(project_id, member_agent_id, role)`.
 - Guest can read and comment. Member can write assigned work. Admin can assign, create projects, and manage project members.
 - Use comments for progress notes and links/relations for durable context.
+- A PM Agent or Project Admin starts with `mesh_start_loop`, then explicitly assigns each Stage.
+- Complete an assigned Stage with strict Evidence items containing `key`, `kind`, and `title`; cover every required Evidence key.
+- Pass `handoff_target_agent_id` only when it came from the next Stage's eligible candidates. Omit it to leave the Stage Unassigned.
+- Use `mesh_get_run` to inspect provider/model, A2A state, Evidence, Handoff, and failures. Use `mesh_cancel_run` for explicit cancellation.
+- Mesh never silently selects the next Agent.
 
 On structured tool errors, read `hint` and call any listed `suggested_next_tools` before retrying.
 """
@@ -293,8 +299,10 @@ class PlaneNativeMcpService:
             "mesh_submit_skill": self.mesh_submit_skill,
             "mesh_search_knowledge": self.mesh_search_knowledge,
             "mesh_get_loop": self.mesh_get_loop,
+            "mesh_start_loop": self.mesh_start_loop,
             "mesh_list_runs": self.mesh_list_runs,
             "mesh_get_run": self.mesh_get_run,
+            "mesh_cancel_run": self.mesh_cancel_run,
             "mesh_assign_stage": self.mesh_assign_stage,
             "mesh_handoff_work_item": self.mesh_assign_stage,
             "mesh_complete_stage": self.mesh_complete_stage,
@@ -1189,6 +1197,33 @@ class PlaneNativeMcpService:
             }
         }
 
+    def mesh_start_loop(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_MEMBER)
+        if not self._can_manage_mesh_loop(project.id):
+            raise McpToolError(
+                "PM functional role or Project Admin is required to start a Loop",
+                error_type="loop_start_not_allowed",
+                suggested_next_tools=["mesh_list_project_roles", "plane_list_project_members"],
+            )
+        loop = (
+            MeshLoopDefinition.objects.filter(
+                project=project,
+                slug=_required_arg(args, "loop_slug"),
+                status=MeshLoopDefinition.Status.PUBLISHED,
+                deleted_at__isnull=True,
+            )
+            .order_by("-version")
+            .first()
+        )
+        if not loop:
+            raise McpToolError("Published Loop not found", error_type="loop_not_found")
+        work_item = self._issue(_required_arg(args, "work_item_id"), project_id=str(project.id))
+        run, created = start_loop(definition=loop, work_item=work_item, actor=self.user)
+        payload = _compact_mesh_run(run)
+        payload["stages"] = [_compact_mesh_stage(stage) for stage in run.stages.select_related("assigned_agent")]
+        return {"run": payload, "created": created}
+
     def mesh_list_runs(self, args: dict[str, Any]) -> dict[str, Any]:
         project = self._project(_required_arg(args, "project_id"))
         self._require_project_role(project, ROLE_GUEST)
@@ -1211,7 +1246,36 @@ class PlaneNativeMcpService:
             )
         payload = _compact_mesh_run(run)
         payload["stages"] = [_compact_mesh_stage(stage) for stage in run.stages.select_related("assigned_agent")]
+        payload["handoffs"] = [
+            {
+                "id": str(handoff.id),
+                "from_stage_id": str(handoff.from_stage_id),
+                "to_node_id": handoff.to_node_id,
+                "from_agent_id": handoff.from_agent.agent_id if handoff.from_agent else None,
+                "target_agent_id": handoff.target_agent.agent_id if handoff.target_agent else None,
+                "target_role": handoff.target_role.key,
+                "status": handoff.status,
+                "reason": handoff.reason,
+            }
+            for handoff in run.handoffs.select_related("from_agent", "target_agent", "target_role")
+        ]
         return {"run": payload}
+
+    def mesh_cancel_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        project = self._project(_required_arg(args, "project_id"))
+        self._require_project_role(project, ROLE_MEMBER)
+        if not self._can_manage_mesh_loop(project.id):
+            raise McpToolError(
+                "PM functional role or Project Admin is required to cancel a Loop",
+                error_type="loop_cancel_not_allowed",
+            )
+        run = MeshLoopRun.objects.filter(
+            id=_required_arg(args, "run_id"), project=project, deleted_at__isnull=True
+        ).first()
+        if not run:
+            raise McpToolError("Loop run not found", error_type="run_not_found")
+        run = cancel_loop(run=run, actor=self.user, reason=str(args.get("reason") or ""))
+        return {"run": _compact_mesh_run(run)}
 
     def mesh_assign_stage(self, args: dict[str, Any]) -> dict[str, Any]:
         project = self._project(_required_arg(args, "project_id"))
@@ -1309,6 +1373,7 @@ class PlaneNativeMcpService:
                 outcome=str(args.get("outcome") or "succeeded"),
                 evidence=list(args.get("evidence") or []),
                 selected_next_node_id=args.get("selected_next_node_id"),
+                handoff_target_agent_id=args.get("handoff_target_agent_id"),
             )
         except ValueError as exc:
             raise McpToolError(str(exc), error_type="invalid_stage_completion") from exc
@@ -1332,6 +1397,16 @@ class PlaneNativeMcpService:
             assigned_agent=profile,
             status=MeshStageRun.Status.SUCCEEDED,
             created_at__lt=stage.created_at,
+            deleted_at__isnull=True,
+        ).exists()
+
+    def _can_manage_mesh_loop(self, project_id: Any) -> bool:
+        if self._project_role(project_id) == ROLE_ADMIN:
+            return True
+        return MeshProjectMemberRole.objects.filter(
+            project_id=project_id,
+            project_member__member=self.user,
+            functional_role__key="pm",
             deleted_at__isnull=True,
         ).exists()
 
@@ -1776,11 +1851,31 @@ class PlaneNativeMcpService:
                 {"project_id": {"type": "string"}, "slug": {"type": "string"}},
                 ["project_id", "slug"],
             ),
+            _tool(
+                "mesh_start_loop",
+                "Start the latest published Loop for a Work Item. PM functional role or Project Admin required.",
+                {
+                    "project_id": {"type": "string", "description": "Project id from plane_list_projects."},
+                    "work_item_id": {"type": "string", "description": "Work item id/key from plane_list_work_items."},
+                    "loop_slug": {"type": "string", "description": "Published Loop slug from mesh_get_loop or the Loops page."},
+                },
+                ["project_id", "work_item_id", "loop_slug"],
+            ),
             _tool("mesh_list_runs", "List project Loop runs.", {"project_id": {"type": "string"}}, ["project_id"]),
             _tool(
                 "mesh_get_run",
                 "Get one Loop run with stages, actual Agent, provider, model, usage, cost, and evidence.",
                 {"project_id": {"type": "string"}, "run_id": {"type": "string"}},
+                ["project_id", "run_id"],
+            ),
+            _tool(
+                "mesh_cancel_run",
+                "Cancel an active Loop and clear the Work Item assignee. PM functional role or Project Admin required.",
+                {
+                    "project_id": {"type": "string"},
+                    "run_id": {"type": "string", "description": "Run id from mesh_list_runs."},
+                    "reason": {"type": "string"},
+                },
                 ["project_id", "run_id"],
             ),
             _tool(
@@ -1815,7 +1910,26 @@ class PlaneNativeMcpService:
                 {
                     "stage_run_id": {"type": "string", "description": "Stage id from mesh_get_run."},
                     "outcome": {"type": "string", "enum": ["succeeded", "failed"]},
-                    "evidence": {"type": "array", "items": {"type": "object"}},
+                    "evidence": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["key", "kind", "title"],
+                            "properties": {
+                                "key": {"type": "string"},
+                                "kind": {"type": "string"},
+                                "title": {"type": "string"},
+                                "uri": {"type": "string"},
+                                "summary": {"type": "string"},
+                                "metadata": {"type": "object"},
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                    "handoff_target_agent_id": {
+                        "type": "string",
+                        "description": "Optional canonical Agent id for the next Stage. Omit to leave it Unassigned.",
+                    },
                     "selected_next_node_id": {
                         "type": "string",
                         "description": "Required only when a Gate has multiple outgoing transitions.",
@@ -2321,12 +2435,18 @@ def _compact_mesh_stage(stage: MeshStageRun) -> dict[str, Any]:
                 "provider": attempt.provider,
                 "model": attempt.model,
                 "configuration_version": attempt.configuration_version,
+                "provider_run_id": attempt.provider_run_id,
+                "provider_state": attempt.provider_state,
                 "status": attempt.status,
+                "failure_code": attempt.failure_code,
+                "failure_message": attempt.failure_message,
                 "input_tokens": attempt.input_tokens,
                 "output_tokens": attempt.output_tokens,
                 "cost": str(attempt.cost),
                 "latency_ms": attempt.latency_ms,
                 "evidence": attempt.evidence,
+                "last_polled_at": attempt.last_polled_at,
+                "heartbeat_at": attempt.heartbeat_at,
             }
             for attempt in attempts
         ],

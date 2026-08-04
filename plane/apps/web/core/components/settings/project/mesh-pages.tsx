@@ -41,6 +41,12 @@ type LoopDefinition = {
   source_yaml: string;
   graph: { nodes?: Array<Record<string, unknown>>; edges?: Array<Record<string, unknown>> };
 };
+type LoopRunSummary = {
+  id: string;
+  definition_id: string;
+  status: string;
+  work_item_name: string;
+};
 type Approval = {
   id: string;
   status: string;
@@ -126,11 +132,7 @@ export function MeshPolicySettings({ params }: { params: ProjectParams }) {
               onChange={(event) => setChangeNote(event.target.value)}
               placeholder="Change note"
             />
-            <Button
-              onClick={() => void publish()}
-              loading={saving}
-              prependIcon={<Save className="size-3.5" />}
-            >
+            <Button onClick={() => void publish()} loading={saving} prependIcon={<Save className="size-3.5" />}>
               Publish
             </Button>
           </div>
@@ -144,9 +146,7 @@ export function MeshPolicySettings({ params }: { params: ProjectParams }) {
               className="flex w-full items-center justify-between py-3 text-left text-13"
             >
               <span className="text-primary">v{policy.version}</span>
-              <span className="max-w-40 truncate text-secondary">
-                {policy.change_note || "Published"}
-              </span>
+              <span className="max-w-40 truncate text-secondary">{policy.change_note || "Published"}</span>
             </button>
           ))}
         </div>
@@ -198,11 +198,7 @@ export function MeshSkillsSettings({ params }: { params: ProjectParams }) {
             rows={22}
             className="font-mono"
           />
-          <Button
-            className="mt-3"
-            onClick={() => void submit()}
-            prependIcon={<Send className="size-3.5" />}
-          >
+          <Button className="mt-3" onClick={() => void submit()} prependIcon={<Send className="size-3.5" />}>
             Submit draft
           </Button>
         </div>
@@ -256,7 +252,7 @@ export function MeshKnowledgeSettings({ params }: { params: ProjectParams }) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ query }),
           })
-        ).results,
+        ).results
       );
     } catch (error) {
       showError(error);
@@ -283,12 +279,8 @@ export function MeshKnowledgeSettings({ params }: { params: ProjectParams }) {
               {result.citation.page_name}
               {result.heading ? ` / ${result.heading}` : ""}
             </div>
-            <div className="mt-1 line-clamp-3 whitespace-pre-wrap text-13 text-secondary">
-              {result.content}
-            </div>
-            <div className="mt-2 font-mono text-11 text-tertiary">
-              page:{result.citation.page_id}
-            </div>
+            <div className="mt-1 line-clamp-3 text-13 whitespace-pre-wrap text-secondary">{result.content}</div>
+            <div className="font-mono mt-2 text-11 text-tertiary">page:{result.citation.page_id}</div>
           </div>
         ))}
       </div>
@@ -301,11 +293,17 @@ export function MeshLoopsSettings({ params }: { params: ProjectParams }) {
   const [loops, setLoops] = useState<LoopDefinition[]>([]);
   const [source, setSource] = useState(DEFAULT_LOOP);
   const [selected, setSelected] = useState<LoopDefinition | null>(null);
+  const [runs, setRuns] = useState<LoopRunSummary[]>([]);
   const [mode, setMode] = useState<"canvas" | "yaml">("canvas");
   const load = useCallback(async () => {
     try {
-      const rows = (await requestJson<{ loops: LoopDefinition[] }>(`${base}/loops/`)).loops;
+      const [loopResult, runResult] = await Promise.all([
+        requestJson<{ loops: LoopDefinition[] }>(`${base}/loops/`),
+        requestJson<{ runs: LoopRunSummary[] }>(`${base}/runs/`),
+      ]);
+      const rows = loopResult.loops;
       setLoops(rows);
+      setRuns(runResult.runs);
       setSelected((current) => rows.find((loop) => loop.id === current?.id) || rows[0] || null);
     } catch (error) {
       showError(error);
@@ -337,7 +335,10 @@ export function MeshLoopsSettings({ params }: { params: ProjectParams }) {
   const graph = useMemo(() => graphElements(selected), [selected]);
   return (
     <SettingsContentWrapper>
-      <SettingsHeading title="Loops" description={`${loops.length} definitions`} />
+      <SettingsHeading
+        title="Loops"
+        description={`${loops.length} definitions / ${runs.length} runs / ${runs.filter((run) => ["queued", "running", "waiting_for_assignee", "awaiting_approval"].includes(run.status)).length} active`}
+      />
       <div className="mb-3 flex items-center justify-between gap-3 border-b border-subtle">
         <div className="flex items-center">
           {(["canvas", "yaml"] as const).map((value) => (
@@ -384,7 +385,7 @@ export function MeshLoopsSettings({ params }: { params: ProjectParams }) {
             >
               <div className="truncate text-13 text-primary">{loop.name}</div>
               <div className="text-11 text-secondary">
-                v{loop.version} / {loop.status}
+                v{loop.version} / {loop.status} / {runs.filter((run) => run.definition_id === loop.id).length} runs
               </div>
             </button>
           ))}

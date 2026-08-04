@@ -214,6 +214,14 @@ export class WorkspaceService extends APIService {
       });
   }
 
+  async syncWorkspaceAgentCard(workspaceSlug: string, memberId: string): Promise<any> {
+    return this.post(`/api/workspaces/${workspaceSlug}/agents/${memberId}/`, {})
+      .then((response) => response?.data)
+      .catch((error) => {
+        throw error?.response?.data;
+      });
+  }
+
   async listAgentApplications(workspaceSlug: string, status = "pending"): Promise<any[]> {
     return this.get(`/api/workspaces/${workspaceSlug}/agent-applications/`, { params: { status } })
       .then((response) => response?.data)

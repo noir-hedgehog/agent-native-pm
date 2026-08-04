@@ -45,6 +45,12 @@ if [ -f "$ROOT_DIR/.agentpm/openclaw-bridge.env" ]; then
   ssh "$REMOTE_HOST" "chmod 600 ~/$REMOTE_DIR/.agentpm/openclaw-bridge.env"
 fi
 
+if [ -f "$ROOT_DIR/.agentpm/mesh-agent-gateway.env" ]; then
+  ssh "$REMOTE_HOST" "mkdir -p ~/$REMOTE_DIR/.agentpm && chmod 700 ~/$REMOTE_DIR/.agentpm"
+  scp -q "$ROOT_DIR/.agentpm/mesh-agent-gateway.env" "$REMOTE_HOST:$REMOTE_DIR/.agentpm/mesh-agent-gateway.env"
+  ssh "$REMOTE_HOST" "chmod 600 ~/$REMOTE_DIR/.agentpm/mesh-agent-gateway.env"
+fi
+
 ssh "$REMOTE_HOST" "cd ~/$REMOTE_DIR && PLANE_ALPINE_MIRROR='$REMOTE_ALPINE_MIRROR' PLANE_PIP_INDEX_URL='$REMOTE_PIP_INDEX_URL' PLANE_NPM_REGISTRY='$REMOTE_NPM_REGISTRY' ./scripts/prepare_plane_production_env.sh"
 
 if [ "$DEPLOY_PLANE" -eq 1 ]; then

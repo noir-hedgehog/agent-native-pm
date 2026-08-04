@@ -1,0 +1,2 @@
+a2a-sdk[http-server,sqlite]==1.0.3
+uvicorn==0.35.0

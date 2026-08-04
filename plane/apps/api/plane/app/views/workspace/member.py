@@ -40,6 +40,7 @@ from plane.db.models import (
     WorkspaceMember,
 )
 from plane.utils.cache import invalidate_cache
+from plane.mesh.agent_cards import sync_agent_card
 
 from .. import BaseViewSet
 
@@ -461,6 +462,55 @@ def _create_agent_account(*, workspace, actor, payload):
     }
 
 
+def _serialize_workspace_agent(member):
+    profile = AgentProfile.objects.filter(
+        workspace=member.workspace, user=member.member, deleted_at__isnull=True
+    ).first()
+    execution = (
+        profile.execution_profiles.filter(is_default=True, is_active=True, deleted_at__isnull=True).first()
+        if profile
+        else None
+    )
+    return {
+        "workspace_member_id": str(member.id),
+        "user_id": str(member.member_id),
+        "agent_id": profile.agent_id if profile else _agent_id((member.member.username or "agent-unknown").removeprefix("agent-")),
+        "display_name": member.member.display_name,
+        "email": member.member.email,
+        "role": member.role,
+        "is_active": member.is_active and member.member.is_active,
+        "agent_profile": (
+            {
+                "id": str(profile.id),
+                "agent_type": profile.agent_type,
+                "runtime_provider": profile.runtime_provider,
+                "endpoint_url": profile.endpoint_url,
+                "status": profile.status,
+                "trust_level": profile.trust_level,
+                "agent_card": profile.agent_card,
+                "capability_claims": profile.capability_claims,
+                "boundaries": profile.boundaries,
+                "last_seen_at": profile.last_seen_at,
+            }
+            if profile
+            else None
+        ),
+        "default_execution": (
+            {
+                "id": str(execution.id),
+                "provider": execution.provider,
+                "model": execution.model,
+                "configuration_version": execution.configuration_version,
+                "has_secret_reference": bool(execution.secret_reference),
+                "settings": execution.settings,
+                "is_active": execution.is_active,
+            }
+            if execution
+            else None
+        ),
+    }
+
+
 class AgentRegistrationRequestEndpoint(BaseAPIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -509,21 +559,7 @@ class WorkspaceAgentEndpoint(BaseAPIView):
             .select_related("member")
             .order_by("member__display_name")
         )
-        return Response(
-            [
-                {
-                    "workspace_member_id": str(member.id),
-                    "user_id": str(member.member_id),
-                    "agent_id": _agent_id((member.member.username or "agent-unknown").removeprefix("agent-")),
-                    "display_name": member.member.display_name,
-                    "email": member.member.email,
-                    "role": member.role,
-                    "is_active": member.is_active and member.member.is_active,
-                }
-                for member in members
-            ],
-            status=status.HTTP_200_OK,
-        )
+        return Response([_serialize_workspace_agent(member) for member in members], status=status.HTTP_200_OK)
 
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
     def post(self, request, slug):
@@ -539,6 +575,13 @@ class WorkspaceAgentEndpoint(BaseAPIView):
 
 class WorkspaceAgentDetailEndpoint(BaseAPIView):
     @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def get(self, request, slug, member_id):
+        member = WorkspaceMember.objects.select_related("member", "workspace").get(
+            id=member_id, workspace__slug=slug, member__is_bot=True
+        )
+        return Response(_serialize_workspace_agent(member))
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
     def patch(self, request, slug, member_id):
         try:
             member = WorkspaceMember.objects.select_related("member").get(
@@ -553,7 +596,48 @@ class WorkspaceAgentDetailEndpoint(BaseAPIView):
                 member.member.save(update_fields=["is_active", "updated_at"])
                 ProjectMember.objects.filter(workspace=member.workspace, member=member.member).update(is_active=active)
             member.save()
-            return Response({"workspace_member_id": str(member.id), "role": member.role, "is_active": member.is_active})
+            profile = AgentProfile.objects.filter(workspace=member.workspace, user=member.member).first()
+            if profile:
+                for field in ("agent_type", "runtime_provider", "endpoint_url", "status", "trust_level"):
+                    if field in request.data:
+                        setattr(profile, field, str(request.data.get(field) or ""))
+                if "capability_claims" in request.data:
+                    profile.capability_claims = list(request.data.get("capability_claims") or [])
+                if "boundaries" in request.data:
+                    profile.boundaries = dict(request.data.get("boundaries") or {})
+                profile.save()
+                execution_data = request.data.get("default_execution")
+                if isinstance(execution_data, dict) and execution_data.get("model"):
+                    provider = str(execution_data.get("provider") or profile.runtime_provider)
+                    version = int(execution_data.get("configuration_version") or 1)
+                    execution_defaults = {
+                        "settings": dict(execution_data.get("settings") or {}),
+                        "is_default": True,
+                        "is_active": bool(execution_data.get("is_active", True)),
+                    }
+                    if "secret_reference" in execution_data:
+                        execution_defaults["secret_reference"] = str(execution_data.get("secret_reference") or "")
+                    AgentExecutionProfile.objects.update_or_create(
+                        workspace=member.workspace,
+                        agent=profile,
+                        provider=provider,
+                        model=str(execution_data["model"]),
+                        configuration_version=version,
+                        defaults=execution_defaults,
+                    )
+            return Response(_serialize_workspace_agent(member))
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @allow_permission(allowed_roles=[ROLE.ADMIN], level="WORKSPACE")
+    def post(self, request, slug, member_id):
+        try:
+            member = WorkspaceMember.objects.select_related("member", "workspace").get(
+                id=member_id, workspace__slug=slug, member__is_bot=True
+            )
+            profile = AgentProfile.objects.get(workspace=member.workspace, user=member.member, deleted_at__isnull=True)
+            sync_agent_card(profile)
+            return Response(_serialize_workspace_agent(member))
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 

@@ -5,8 +5,10 @@ umask 077
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.env.agentpm"
 PLANE_ENV_FILE="$ROOT_DIR/plane/.env"
+PLANE_API_ENV_FILE="$ROOT_DIR/plane/apps/api/.env"
 AGENT_ENV_FILE="$ROOT_DIR/.agentpm/plane-agent-env.sh"
 BRIDGE_ENV_FILE="$ROOT_DIR/.agentpm/openclaw-bridge.env"
+GATEWAY_ENV_FILE="$ROOT_DIR/.agentpm/mesh-agent-gateway.env"
 
 set_env() {
   local file="$1" key="$2" value="$3" temp
@@ -65,6 +67,13 @@ if [ -f "$BRIDGE_ENV_FILE" ]; then
   source "$BRIDGE_ENV_FILE"
   set_env "$ENV_FILE" OPENCLAW_BASE_URL "http://${OPENCLAW_BRIDGE_HOST}:${OPENCLAW_BRIDGE_PORT}"
   set_env "$ENV_FILE" OPENCLAW_TOKEN "$OPENCLAW_BRIDGE_TOKEN"
+fi
+
+if [ -f "$GATEWAY_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  source "$GATEWAY_ENV_FILE"
+  set_env "$PLANE_API_ENV_FILE" MESH_AGENT_GATEWAY_TOKEN "$MESH_GATEWAY_TOKEN"
+  set_env "$PLANE_API_ENV_FILE" MESH_ENVIRONMENT "production"
 fi
 
 set_env "$PLANE_ENV_FILE" AGENTPM_ADMIN_TOKEN "$admin_token"

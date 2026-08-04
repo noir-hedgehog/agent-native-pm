@@ -21,8 +21,9 @@ if [ "${1:-}" = "--dry-run" ]; then DRY_RUN=1; shift; fi
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then usage; exit 0; fi
 
 command -v python3 >/dev/null 2>&1 || { echo "python3 CLI not found" >&2; exit 1; }
+OPENCLAW_BIN="${MESH_OPENCLAW_BIN:-openclaw}"
 if [ "$DRY_RUN" -eq 0 ]; then
-  command -v openclaw >/dev/null 2>&1 || { echo "openclaw CLI not found" >&2; exit 1; }
+  command -v "$OPENCLAW_BIN" >/dev/null 2>&1 || { echo "openclaw CLI not found" >&2; exit 1; }
   if [ "${MESH_SKIP_PLANE_SEED:-${AGENTPM_SKIP_PLANE_SEED:-0}}" != "1" ]; then
     eval "$(./scripts/seed_plane_mvp.sh | /usr/bin/grep '^export ')"
     eval "$(./scripts/seed_plane_agents.sh | /usr/bin/grep '^export ')"
@@ -56,9 +57,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-openclaw mcp add "$SERVER_NAME" "${ARGS[@]}"
-openclaw mcp reload >/dev/null 2>&1 || true
-openclaw mcp probe "$SERVER_NAME" --json
+"$OPENCLAW_BIN" mcp add "$SERVER_NAME" "${ARGS[@]}"
+"$OPENCLAW_BIN" mcp reload >/dev/null 2>&1 || true
+"$OPENCLAW_BIN" mcp probe "$SERVER_NAME" --json
 
 if [ "${MESH_SKIP_SKILL_INSTALL:-${AGENTPM_SKIP_SKILL_INSTALL:-0}}" != "1" ]; then
   ./scripts/install_plane_agent_skill.sh --openclaw-only

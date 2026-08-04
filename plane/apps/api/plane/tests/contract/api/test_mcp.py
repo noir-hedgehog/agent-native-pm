@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -176,6 +177,9 @@ def test_native_mcp_initialize_and_tools_list(native_mcp_data):
     assert "plane_get_me" in tool_names
     assert "plane_update_work_item" in tool_names
     assert "plane_add_work_item_relation" in tool_names
+    assert "mesh_start_loop" in tool_names
+    assert "mesh_cancel_run" in tool_names
+    assert "mesh_complete_stage" in tool_names
     assert "plane_add_project_member" not in tool_names
     assert "plane_add_workspace_user_to_project" not in tool_names
 
@@ -183,6 +187,10 @@ def test_native_mcp_initialize_and_tools_list(native_mcp_data):
     target_schema = create_item["inputSchema"]["properties"]["target_agent_id"]
     assert "plane_list_agent_accounts" in target_schema["description"]
     assert "Do not pass Plane user UUID/email" in target_schema["description"]
+    completion = next(tool for tool in tools.json()["result"]["tools"] if tool["name"] == "mesh_complete_stage")
+    evidence_schema = completion["inputSchema"]["properties"]["evidence"]["items"]
+    assert evidence_schema["required"] == ["key", "kind", "title"]
+    assert "handoff_target_agent_id" in completion["inputSchema"]["properties"]
 
 
 def test_native_mcp_admin_tools_list_includes_project_member_management(native_mcp_data):
@@ -779,6 +787,126 @@ def test_mesh_stage_assignment_can_return_plane_work_item_to_unassigned(native_m
     assert handoff.status == MeshHandoff.Status.CANCELED
 
 
+def test_mesh_loop_start_strict_evidence_completion_and_cancel(native_mcp_data):
+    workspace = native_mcp_data["workspace"]
+    project = native_mcp_data["project"]
+    issue = native_mcp_data["issue"]
+    iris = native_mcp_data["users"]["iris"]
+    profile = AgentProfile.objects.create(
+        workspace=workspace,
+        user=iris,
+        agent_id="iris",
+        status=AgentProfile.Status.ACTIVE,
+        agent_card={"available": True},
+    )
+    role = MeshFunctionalRole.objects.create(
+        workspace=workspace,
+        project=project,
+        key="developer",
+        name="Developer",
+        capabilities=["code.write"],
+    )
+    MeshProjectMemberRole.objects.create(
+        workspace=workspace,
+        project=project,
+        project_member=ProjectMember.objects.get(project=project, member=iris),
+        functional_role=role,
+    )
+    definition = MeshLoopDefinition.objects.create(
+        workspace=workspace,
+        project=project,
+        slug="mesh-code-change-v1",
+        name="Code change",
+        version=1,
+        status=MeshLoopDefinition.Status.PUBLISHED,
+        source_yaml="schema_version: 1",
+        graph={
+            "nodes": [
+                {"id": "assigned", "type": "trigger"},
+                {
+                    "id": "develop",
+                    "type": "stage",
+                    "roles": ["developer"],
+                    "evidence": ["summary", "tests"],
+                },
+                {"id": "done", "type": "complete"},
+            ],
+            "edges": [
+                {"from": "assigned", "to": "develop"},
+                {"from": "develop", "to": "done"},
+            ],
+        },
+        checksum="1" * 64,
+    )
+    admin_client = authenticate(native_mcp_data["client"], native_mcp_data["tokens"]["hekate"])
+    started = mcp_call(
+        admin_client,
+        "agentpm",
+        "mesh_start_loop",
+        {"project_id": str(project.id), "work_item_id": str(issue.id), "loop_slug": definition.slug},
+    )
+    assert started["created"] is True
+    stage_id = started["run"]["stages"][0]["id"]
+    assigned = mcp_call(
+        admin_client,
+        "agentpm",
+        "mesh_assign_stage",
+        {"project_id": str(project.id), "stage_run_id": stage_id, "target_agent_id": "iris"},
+    )
+    assert assigned["stage"]["assigned_agent_id"] == "iris"
+
+    iris_client = authenticate(native_mcp_data["client"], native_mcp_data["tokens"]["iris"])
+    invalid = mcp_call(
+        iris_client,
+        "agentpm",
+        "mesh_complete_stage",
+        {
+            "stage_run_id": stage_id,
+            "evidence": [{"key": "summary", "kind": "text", "title": "Implemented"}],
+        },
+    )
+    assert invalid["error"]["type"] == "invalid_stage_completion"
+    assert "missing required evidence keys: tests" in invalid["error"]["message"]
+
+    completed = mcp_call(
+        iris_client,
+        "agentpm",
+        "mesh_complete_stage",
+        {
+            "stage_run_id": stage_id,
+            "evidence": [
+                {"key": "summary", "kind": "text", "title": "Implemented"},
+                {"key": "tests", "kind": "test_result", "title": "Tests passed"},
+            ],
+        },
+    )
+    assert completed["status"] == MeshLoopRun.Status.COMPLETED
+    timeline_comment = IssueComment.objects.get(issue=issue, external_source="mesh-runtime")
+    assert "Agent: iris" in timeline_comment.comment_html
+    assert "Evidence: summary, tests" in timeline_comment.comment_html
+
+    second_issue = Issue.objects.create(
+        workspace=workspace,
+        project=project,
+        name="Cancelable Mesh task",
+        state=native_mcp_data["states"]["todo"],
+    )
+    second = mcp_call(
+        admin_client,
+        "agentpm",
+        "mesh_start_loop",
+        {"project_id": str(project.id), "work_item_id": str(second_issue.id), "loop_slug": definition.slug},
+    )
+    canceled = mcp_call(
+        admin_client,
+        "agentpm",
+        "mesh_cancel_run",
+        {"project_id": str(project.id), "run_id": second["run"]["id"], "reason": "test"},
+    )
+    assert canceled["run"]["status"] == MeshLoopRun.Status.CANCELED
+    assert not IssueAssignee.objects.filter(issue=second_issue).exists()
+
+
 def test_native_mcp_work_item_kind_facade(native_mcp_data):
     client = authenticate(native_mcp_data["client"], native_mcp_data["tokens"]["hekate"])
     project_id = str(native_mcp_data["project"].id)
@@ -901,3 +1029,38 @@ def test_human_admin_creates_agent_identity_and_separate_execution_profile(nativ
     assert execution.secret_reference == "env:NOVA_TOKEN"
     assert "NOVA_TOKEN" not in json.dumps(response.json())
     assert "secret_reference" not in json.dumps(response.json())
+
+    details = client.get(f"/api/workspaces/agentpm/agents/{response.json()['workspace_member_id']}/")
+    assert details.status_code == 200
+    assert details.json()["default_execution"]["has_secret_reference"] is True
+    assert "secret_reference" not in json.dumps(details.json())
+
+    updated = client.patch(
+        f"/api/workspaces/agentpm/agents/{response.json()['workspace_member_id']}/",
+        {
+            "endpoint_url": "http://100.118.86.67:18890/agents/nova/a2a",
+            "status": "active",
+            "trust_level": "verified",
+            "default_execution": {
+                "provider": "openclaw",
+                "model": "gpt-test",
+                "configuration_version": 1,
+                "settings": {"workspace_mode": "per_loop"},
+            },
+        },
+        format="json",
+    )
+    assert updated.status_code == 200
+    execution.refresh_from_db()
+    assert execution.secret_reference == "env:NOVA_TOKEN"
+    assert execution.settings["workspace_mode"] == "per_loop"
+
+    with patch("plane.app.views.workspace.member.sync_agent_card") as sync:
+        sync.side_effect = ValueError("Agent Card sync failed: offline")
+        synced = client.post(
+            f"/api/workspaces/agentpm/agents/{response.json()['workspace_member_id']}/",
+            {},
+            format="json",
+        )
+    assert synced.status_code == 400
+    assert "offline" in synced.json()["error"]

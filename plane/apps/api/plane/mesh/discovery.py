@@ -79,7 +79,7 @@ def list_eligible_agents(
 
     result: list[EligibleAgent] = []
     for profile in profiles:
-        if not bool((profile.agent_card or {}).get("available", True)):
+        if not bool((profile.agent_card or {}).get("available", False)):
             continue
         role_capabilities = {
             capability for role in roles_by_user[str(profile.user_id)] for capability in (role.capabilities or [])

@@ -29,9 +29,9 @@ from plane.mesh.source_formats import parse_project_policy_yaml, parse_skill_mar
 
 
 ROLE_ASSIGNMENTS = {
-    "hekate": ("pm", "developer"),
+    "hekate": ("pm", "reviewer"),
     "iris": ("developer",),
-    "lingxi": ("tester", "reviewer"),
+    "lingxi": ("tester",),
     "taichi": ("observer",),
 }
 
@@ -81,7 +81,7 @@ def _policy_payload(roles: list[MeshFunctionalRole]) -> dict:
         "roles": {
             role.key: {
                 "capabilities": role.capabilities,
-                "require_human_approval": role.key == "reviewer",
+                "require_human_approval": False,
             }
             for role in roles
         },
@@ -118,6 +118,7 @@ def _bootstrap_project(project: Project, source_text: str) -> dict:
         status=AgentProfile.Status.ACTIVE,
         deleted_at__isnull=True,
     ).select_related("user")
+    managed_role_keys = {role_key for assignments in ROLE_ASSIGNMENTS.values() for role_key in assignments}
     for profile in profiles:
         project_member = ProjectMember.objects.filter(
             project=project,
@@ -127,7 +128,14 @@ def _bootstrap_project(project: Project, source_text: str) -> dict:
         ).first()
         if not project_member:
             continue
-        for role_key in ROLE_ASSIGNMENTS.get(profile.agent_id, ("observer",)):
+        desired_role_keys = ROLE_ASSIGNMENTS.get(profile.agent_id, ("observer",))
+        MeshProjectMemberRole.objects.filter(
+            project=project,
+            project_member=project_member,
+            functional_role__key__in=managed_role_keys,
+            deleted_at__isnull=True,
+        ).exclude(functional_role__key__in=desired_role_keys).delete()
+        for role_key in desired_role_keys:
             role = role_by_key.get(role_key)
             if not role:
                 continue

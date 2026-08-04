@@ -105,6 +105,11 @@ services:
       - plane-db
       - plane-redis
       - plane-mq
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A plane inspect ping -d mesh-runner@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   mesh-indexer:
     container_name: mesh-indexer
@@ -118,6 +123,11 @@ services:
       - plane-db
       - plane-redis
       - plane-mq
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A plane inspect ping -d mesh-indexer@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   migrator:
     container_name: plane-migrator

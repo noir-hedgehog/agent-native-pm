@@ -7,7 +7,7 @@ are retained only as rollback artifacts and remain stopped after migration.
 
 ## First deployment
 
-1. Install the bridge on the machine that owns the OpenClaw agents:
+1. Install the A2A 1.0 Gateway on the machine that owns the OpenClaw agents. It uses an isolated Node 24 runtime and does not change the system Node version:
 
 ```bash
 ./scripts/install_openclaw_bridge.sh
@@ -59,6 +59,18 @@ Run `scripts/bootstrap_mesh_production.sh` after a data migration or new project
 seed. It idempotently publishes baseline Project Policies, installs the
 `mesh-plane-workflow` Skill, assigns default Agent functional roles, and indexes
 project Pages as cited Knowledge.
+
+Prepare the v0.2 project, Cycle, production Loop, runtime profiles, and acceptance work item after the Gateway is healthy:
+
+```bash
+MESH_V02_GATEWAY_BASE_URL=http://<local-tailscale-ip>:18890 \
+MESH_V02_SYNC_AGENT_CARDS=1 \
+./scripts/bootstrap_mesh_v02.sh
+```
+
+The bootstrap marks every configured Agent Card unavailable before synchronizing it. A failed Card request leaves the Agent out of candidate discovery. The production `mesh-runner` receives `MESH_AGENT_GATEWAY_TOKEN` from its ignored environment; the secret is referenced by name in `AgentExecutionProfile` and is never returned by the API.
+
+Gateway state is stored in `~/.mesh/mesh-agent-gateway.sqlite3`, with a separate persistent idempotency database and per-Loop worktrees under `~/.mesh/worktrees`. Back up these files locally with restricted permissions; do not copy the bearer token into Mesh data or backups intended for sharing.
 
 ## Exposure policy
 

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-umask 077
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+echo "install_openclaw_bridge.sh is deprecated; installing the A2A 1.0 Mesh Agent Gateway." >&2
+exec "$ROOT_DIR/scripts/install_mesh_agent_gateway.sh" "$@"
+
+: <<'LEGACY_OPENCLAW_BRIDGE'
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT_DIR/.agentpm/openclaw-bridge.env"
@@ -65,3 +70,4 @@ for _ in {1..30}; do
 done
 curl --noproxy '*' -fsS "http://$OPENCLAW_BRIDGE_HOST:$OPENCLAW_BRIDGE_PORT/health" >/dev/null
 printf '\nBridge installed at http://%s:%s\n' "$OPENCLAW_BRIDGE_HOST" "$OPENCLAW_BRIDGE_PORT"
+LEGACY_OPENCLAW_BRIDGE

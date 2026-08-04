@@ -198,6 +198,11 @@ urlpatterns = [
         name="mesh-run-detail",
     ),
     path(
+        "workspaces/<str:slug>/projects/<uuid:project_id>/mesh/runs/<uuid:loop_run_id>/cancel/",
+        MeshRunsEndpoint.as_view(),
+        name="mesh-run-cancel",
+    ),
+    path(
         "workspaces/<str:slug>/projects/<uuid:project_id>/members/<uuid:pk>/",
         ProjectMemberViewSet.as_view({"get": "retrieve", "patch": "partial_update", "delete": "destroy"}),
         name="project-member",

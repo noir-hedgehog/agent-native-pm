@@ -31,7 +31,7 @@ from plane.db.models import (
     ProjectMember,
 )
 from plane.mesh.discovery import assign_stage, leave_stage_unassigned, list_eligible_agents
-from plane.mesh.runtime import queue_stage_start_on_commit, resolve_approval
+from plane.mesh.runtime import cancel_loop, queue_stage_start_on_commit, resolve_approval, start_loop
 from plane.mesh.skills import submit_skill_version
 from plane.mesh.source_formats import parse_loop_yaml, parse_project_policy_yaml, sha256_text
 
@@ -331,57 +331,11 @@ class MeshLoopStartEndpoint(BaseAPIView):
         ).first()
         if not work_item:
             return Response({"error": "Work item not found"}, status=status.HTTP_404_NOT_FOUND)
-        existing = MeshLoopRun.objects.filter(
-            work_item=work_item,
-            status__in=[
-                MeshLoopRun.Status.QUEUED,
-                MeshLoopRun.Status.RUNNING,
-                MeshLoopRun.Status.WAITING_FOR_ASSIGNEE,
-                MeshLoopRun.Status.AWAITING_APPROVAL,
-            ],
-            deleted_at__isnull=True,
-        ).first()
-        if existing:
-            return Response({"run": _loop_run_dict(existing, include_stages=True)}, status=status.HTTP_200_OK)
-        first_stage = _first_stage_node(loop.graph)
-        run = MeshLoopRun.objects.create(
-            workspace=loop.workspace,
-            project=loop.project,
-            work_item=work_item,
-            definition=loop,
-            definition_version=loop.version,
-            status=(MeshLoopRun.Status.WAITING_FOR_ASSIGNEE if first_stage else MeshLoopRun.Status.COMPLETED),
-            current_node_id=str(first_stage.get("id") if first_stage else ""),
-            budget=dict((loop.graph.get("limits") or {}).get("budget") or {}),
-            started_at=timezone.now(),
-            completed_at=None if first_stage else timezone.now(),
+        run, created = start_loop(definition=loop, work_item=work_item, actor=request.user)
+        return Response(
+            {"run": _loop_run_dict(run, include_stages=True)},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
-        if first_stage:
-            role_keys = list(first_stage.get("roles") or [])
-            functional_role = MeshFunctionalRole.objects.filter(
-                project_id=project_id, key=role_keys[0] if len(role_keys) == 1 else None, deleted_at__isnull=True
-            ).first()
-            MeshStageRun.objects.create(
-                workspace=loop.workspace,
-                project=loop.project,
-                loop_run=run,
-                node_id=str(first_stage["id"]),
-                objective=str(first_stage.get("objective") or ""),
-                functional_role=functional_role,
-                required_evidence=list(first_stage.get("evidence") or []),
-            )
-            IssueAssignee.objects.filter(issue=work_item, deleted_at__isnull=True).delete()
-        MeshAuditEvent.objects.create(
-            workspace=loop.workspace,
-            project=loop.project,
-            loop_run=run,
-            work_item=work_item,
-            actor_user=request.user,
-            event_type="loop.started",
-            payload={"definition_id": str(loop.id), "definition_version": loop.version},
-            occurred_at=timezone.now(),
-        )
-        return Response({"run": _loop_run_dict(run, include_stages=True)}, status=status.HTTP_201_CREATED)
 
 
 class MeshApprovalsEndpoint(BaseAPIView):
@@ -517,6 +471,17 @@ class MeshRunsEndpoint(BaseAPIView):
             return Response({"run": _loop_run_dict(run, include_stages=True)})
         return Response({"runs": [_loop_run_dict(run) for run in runs[:100]]})
 
+    def post(self, request, slug, project_id, loop_run_id=None):
+        if not loop_run_id:
+            return Response({"error": "loop_run_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not _can_draft_loop(request.user.id, project_id):
+            return Response({"error": "PM functional role or Project Admin is required"}, status=403)
+        run = MeshLoopRun.objects.filter(id=loop_run_id, project_id=project_id, deleted_at__isnull=True).first()
+        if not run:
+            return Response({"error": "Loop run not found"}, status=status.HTTP_404_NOT_FOUND)
+        run = cancel_loop(run=run, actor=request.user, reason=str(request.data.get("reason") or ""))
+        return Response({"run": _loop_run_dict(run, include_stages=True)})
+
 
 def _role_dict(role):
     return {
@@ -614,12 +579,18 @@ def _stage_run_dict(stage):
                 "agent_id": attempt.agent.agent_id,
                 "provider": attempt.provider,
                 "model": attempt.model,
+                "provider_run_id": attempt.provider_run_id,
+                "provider_state": attempt.provider_state,
                 "status": attempt.status,
+                "failure_code": attempt.failure_code,
+                "failure_message": attempt.failure_message,
                 "input_tokens": attempt.input_tokens,
                 "output_tokens": attempt.output_tokens,
                 "cost": str(attempt.cost),
                 "latency_ms": attempt.latency_ms,
                 "evidence": attempt.evidence,
+                "last_polled_at": attempt.last_polled_at,
+                "heartbeat_at": attempt.heartbeat_at,
             }
             for attempt in attempts.select_related("agent")
         ],
@@ -641,6 +612,19 @@ def _loop_run_dict(run, include_stages=False):
     if include_stages:
         payload["stages"] = [
             _stage_run_dict(stage) for stage in run.stages.select_related("assigned_agent", "functional_role")
+        ]
+        payload["handoffs"] = [
+            {
+                "id": str(handoff.id),
+                "from_stage_id": str(handoff.from_stage_id),
+                "to_node_id": handoff.to_node_id,
+                "from_agent_id": handoff.from_agent.agent_id if handoff.from_agent else None,
+                "target_agent_id": handoff.target_agent.agent_id if handoff.target_agent else None,
+                "target_role": handoff.target_role.key,
+                "status": handoff.status,
+                "reason": handoff.reason,
+            }
+            for handoff in run.handoffs.select_related("from_agent", "target_agent", "target_role")
         ]
     return payload
 

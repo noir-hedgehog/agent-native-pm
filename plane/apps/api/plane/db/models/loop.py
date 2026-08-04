@@ -116,6 +116,9 @@ class MeshRunAttempt(WorkspaceBaseModel):
     configuration_version = models.PositiveIntegerField(default=1)
     provider_run_id = models.CharField(max_length=255, blank=True)
     provider_session_id = models.CharField(max_length=255, blank=True)
+    provider_state = models.CharField(max_length=64, blank=True)
+    failure_code = models.CharField(max_length=64, blank=True)
+    failure_message = models.TextField(blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
     input_tokens = models.PositiveBigIntegerField(default=0)
     output_tokens = models.PositiveBigIntegerField(default=0)
@@ -124,11 +127,20 @@ class MeshRunAttempt(WorkspaceBaseModel):
     evidence = models.JSONField(default=list, blank=True)
     usage = models.JSONField(default=dict, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "mesh_run_attempts"
         ordering = ("created_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_run_id"],
+                condition=models.Q(deleted_at__isnull=True) & ~models.Q(provider_run_id=""),
+                name="mesh_attempt_unique_provider_run",
+            )
+        ]
 
 
 class MeshHandoff(WorkspaceBaseModel):

@@ -13,7 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -r services/mesh_agent_gateway/requirements.txt pytest
       - run: PYTHONPATH=src python -m unittest discover -s tests -v
+      - run: PYTHONPATH=. pytest services/mesh_agent_gateway/tests -q
       - run: python -m py_compile src/mesh/*.py src/agentpm/*.py src/agentpm/adapters/*.py src/agentpm/persistence/*.py scripts/*.py
       - run: bash -n scripts/*.sh
       - run: docker build -f Dockerfile.mesh -t mesh:test .
